@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Miquland
+Comment=A modern dynamic tiling Wayland compositor
+Exec=miquland
+Type=Application
+DesktopNames=miquland
+Keywords=wayland;compositor;tiling;wm;windowmanager;
