@@ -1,5 +1,6 @@
 #include "core/view.hpp"
 #include "core/popup.hpp"
+#include "core/layer_surface.hpp"
 #include "core/server.hpp"
 #include "core/output.hpp"
 #include "core/workspace.hpp"
@@ -1363,7 +1364,14 @@ void View::reapply_overview_scale() {
 }
 
 void View::focus() {
-    if (!m_mapped) return;
+    if (!m_mapped || (m_server && m_server->is_locked())) return;
+
+    if (m_server && m_server->get_focused_layer_surface()) {
+        auto* wlr_layer = m_server->get_focused_layer_surface()->get_wlr_layer_surface();
+        if (wlr_layer && wlr_layer->current.keyboard_interactive == ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE) {
+            return;
+        }
+    }
 
     if (m_workspace && m_server->get_workspace_manager()) {
         if (m_workspace->get_id() != m_server->get_workspace_manager()->get_active_workspace_id()) {
@@ -1388,21 +1396,7 @@ void View::focus() {
     }
 
     View* prev = m_server->get_focused_view();
-    if (prev == this) {
-        for (auto& popup : m_popups) {
-            if (popup && popup->get_scene_tree()) {
-                wlr_scene_node_raise_to_top(&popup->get_scene_tree()->node);
-            }
-        }
-        for (const auto& v : m_server->get_views()) {
-            if (v && v->is_mapped() && v->is_override_redirect() && v->get_scene_tree()) {
-                wlr_scene_node_raise_to_top(&v->get_scene_tree()->node);
-            }
-        }
-        return;
-    }
-
-    if (prev) {
+    if (prev && prev != this) {
         if (prev->m_type == ViewType::Xdg && prev->m_xdg_toplevel) {
             wlr_xdg_toplevel_set_activated(prev->m_xdg_toplevel, false);
         } else if (prev->m_type == ViewType::XWayland && prev->m_xwayland_surface) {
@@ -1413,6 +1407,7 @@ void View::focus() {
         if (prev->m_foreign_toplevel) {
             wlr_foreign_toplevel_handle_v1_set_activated(prev->m_foreign_toplevel, false);
         }
+        prev->update_frame();
     }
 
     if (m_scene_tree) {
@@ -1449,10 +1444,6 @@ void View::focus() {
         wlr_foreign_toplevel_handle_v1_set_activated(m_foreign_toplevel, true);
     }
     m_server->set_focused_view(this);
-
-    if (prev && prev != this) {
-        prev->update_frame();
-    }
     update_frame();
 
     if (target_surface) {

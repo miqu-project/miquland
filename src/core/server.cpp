@@ -374,6 +374,13 @@ void Server::reload_config() {
         }
     }
 
+    for (const auto& l_surf : m_layer_surfaces) {
+        if (l_surf && l_surf->is_mapped()) {
+            l_surf->update_blur();
+            l_surf->update_shadow();
+        }
+    }
+
     if (m_output_manager) {
         for (const auto& out : m_output_manager->get_outputs()) {
             if (out && out->get_wlr_output()) {
@@ -493,34 +500,57 @@ void Server::set_focused_view(View* view) {
 }
 
 View* Server::view_at(double lx, double ly, struct wlr_surface** surface, double* sx, double* sy) {
-    struct wlr_scene_node* node = wlr_scene_node_at(&m_scene->tree.node, lx, ly, sx, sy);
-    if (!node || node->type != WLR_SCENE_NODE_BUFFER) {
-        return nullptr;
-    }
+    std::vector<struct wlr_scene_node*> disabled_nodes;
+    View* result_view = nullptr;
+    *surface = nullptr;
 
-    auto* scene_buffer = wlr_scene_buffer_from_node(node);
-    auto* scene_surface = wlr_scene_surface_try_from_buffer(scene_buffer);
-    if (scene_surface) {
-        *surface = scene_surface->surface;
-    } else {
-        *surface = nullptr;
-    }
+    while (true) {
+        struct wlr_scene_node* node = wlr_scene_node_at(&m_scene->tree.node, lx, ly, sx, sy);
+        if (!node || node->type != WLR_SCENE_NODE_BUFFER) {
+            break;
+        }
 
-    // Find the View associated with this scene node hierarchy
-    struct wlr_scene_tree* tree = node->parent;
-    while (tree != nullptr) {
-        if (tree->node.data != nullptr) {
-            if (is_valid_view_ptr(tree->node.data)) {
-                auto* possible_view = static_cast<View*>(tree->node.data);
-                if (!possible_view->is_animating_close()) {
-                    return possible_view;
+        auto* scene_buffer = wlr_scene_buffer_from_node(node);
+        auto* scene_surface = wlr_scene_surface_try_from_buffer(scene_buffer);
+        View* found_view = nullptr;
+
+        // Find the View associated with this scene node hierarchy
+        struct wlr_scene_tree* tree = node->parent;
+        while (tree != nullptr) {
+            if (tree->node.data != nullptr) {
+                if (is_valid_view_ptr(tree->node.data)) {
+                    auto* possible_view = static_cast<View*>(tree->node.data);
+                    if (!possible_view->is_animating_close()) {
+                        found_view = possible_view;
+                    }
+                    break;
                 }
             }
+            tree = tree->node.parent;
         }
-        tree = tree->node.parent;
+
+        if (scene_surface) {
+            *surface = scene_surface->surface;
+            result_view = found_view;
+            break;
+        }
+
+        if (found_view) {
+            result_view = found_view;
+            break;
+        }
+
+        // Neither an interactive surface nor an active view: purely visual buffer (e.g. closing animation buffer, blur node).
+        // Temporarily disable to punch through and discover the interactive target beneath.
+        disabled_nodes.push_back(node);
+        wlr_scene_node_set_enabled(node, false);
     }
 
-    return nullptr;
+    for (auto* n : disabled_nodes) {
+        wlr_scene_node_set_enabled(n, true);
+    }
+
+    return result_view;
 }
 
 struct wlr_scene_tree* Server::get_layer_tree(enum zwlr_layer_shell_v1_layer layer) const {
@@ -543,10 +573,7 @@ void Server::add_layer_surface(std::unique_ptr<LayerSurface> surface) {
 
 void Server::remove_layer_surface(LayerSurface* surface) {
     if (m_focused_layer_surface == surface) {
-        m_focused_layer_surface = nullptr;
-        if (m_focused_view) {
-            m_focused_view->focus();
-        }
+        focus_layer_surface(nullptr);
     }
 
     for (auto it = m_layer_surfaces.begin(); it != m_layer_surfaces.end(); ++it) {
@@ -560,16 +587,41 @@ void Server::remove_layer_surface(LayerSurface* surface) {
 void Server::focus_layer_surface(LayerSurface* surface) {
     if (surface && surface->get_wlr_layer_surface()) {
         m_focused_layer_surface = surface;
+        if (m_focused_view) {
+            if (m_focused_view->get_type() == ViewType::Xdg && m_focused_view->get_xdg_toplevel()) {
+                wlr_xdg_toplevel_set_activated(m_focused_view->get_xdg_toplevel(), false);
+            } else if (m_focused_view->get_type() == ViewType::XWayland && m_focused_view->get_xwayland_surface()) {
+                if (!m_focused_view->is_override_redirect()) {
+                    wlr_xwayland_surface_activate(m_focused_view->get_xwayland_surface(), false);
+                }
+            }
+            if (m_focused_view->get_foreign_toplevel()) {
+                wlr_foreign_toplevel_handle_v1_set_activated(m_focused_view->get_foreign_toplevel(), false);
+            }
+            m_focused_view->update_frame();
+        }
+
         struct wlr_surface* wlr_surf = surface->get_wlr_layer_surface()->surface;
-        struct wlr_seat* seat = m_input_manager->get_seat();
-        struct wlr_keyboard* kb = wlr_seat_get_keyboard(seat);
-        if (kb && wlr_surf) {
+        struct wlr_seat* seat = m_input_manager ? m_input_manager->get_seat() : nullptr;
+        struct wlr_keyboard* kb = seat ? wlr_seat_get_keyboard(seat) : nullptr;
+        if (kb && wlr_surf && seat) {
             wlr_seat_keyboard_notify_enter(seat, wlr_surf, kb->keycodes, kb->num_keycodes, &kb->modifiers);
         }
     } else {
         m_focused_layer_surface = nullptr;
-        if (m_focused_view) {
+        if (m_focused_view && m_focused_view->is_mapped()) {
             m_focused_view->focus();
+        } else if (m_workspace_manager) {
+            Workspace* ws = m_workspace_manager->get_active_workspace();
+            View* best = m_workspace_manager->find_best_focus_view(ws);
+            if (best) {
+                best->focus();
+            } else {
+                set_focused_view(nullptr);
+            }
+        }
+        if (m_input_manager) {
+            m_input_manager->recheck_cursor_focus();
         }
     }
 }

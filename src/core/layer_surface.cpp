@@ -5,6 +5,7 @@
 #include "core/input/input.hpp"
 #include "core/animation/animation_manager.hpp"
 #include "core/config/config.hpp"
+#include "core/common/border_paint.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -60,6 +61,7 @@ LayerSurface::~LayerSurface() {
     wl_list_remove(&m_surface_commit_listener.link);
     wl_list_remove(&m_new_popup_listener.link);
     m_blur_node = nullptr;
+    m_shadow_node = nullptr;
 }
 
 void LayerSurface::configure(const struct wlr_box* full_area, struct wlr_box* usable_area) {
@@ -73,6 +75,7 @@ void LayerSurface::configure(const struct wlr_box* full_area, struct wlr_box* us
         m_width = m_wlr_layer_surface->surface->current.width;
         m_height = m_wlr_layer_surface->surface->current.height;
     }
+    update_shadow();
 }
 
 void LayerSurface::update_tree() {
@@ -146,6 +149,86 @@ void LayerSurface::update_blur() {
             wlr_scene_blur_set_transparency_mask_source(m_blur_node, surf_buf);
         }
     }
+}
+
+void LayerSurface::sync_shadow_geometry(int w, int h, int r, float sigma, int ox, int oy) {
+    if (!m_shadow_node) return;
+    int pad = static_cast<int>(std::ceil(std::max(4.0f, sigma * 2.5f)));
+
+    wlr_scene_node_set_position(&m_shadow_node->node, -pad + ox, -pad + oy);
+    wlr_scene_shadow_set_size(m_shadow_node, w + 2 * pad, h + 2 * pad);
+    wlr_scene_shadow_set_blur_sigma(m_shadow_node, sigma);
+    wlr_scene_shadow_set_corner_radius(m_shadow_node, r);
+
+    struct clipped_region cr = clipped_region_get_default();
+    cr.area.x = pad - ox;
+    cr.area.y = pad - oy;
+    cr.area.width = w;
+    cr.area.height = h;
+    cr.corners = corner_radii_all(r);
+    wlr_scene_shadow_set_clipped_region(m_shadow_node, cr);
+}
+
+void LayerSurface::update_shadow() {
+    if (!m_scene_layer_surface || !m_wlr_layer_surface || !is_mapped()) {
+        if (m_shadow_node) {
+            wlr_scene_node_set_enabled(&m_shadow_node->node, false);
+        }
+        return;
+    }
+
+    // Wallpapers on BACKGROUND layer should not cast shadows
+    if (m_current_layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
+        if (m_shadow_node) {
+            wlr_scene_node_set_enabled(&m_shadow_node->node, false);
+        }
+        return;
+    }
+
+    // Shadow is opt-in via layer rules matching namespace
+    Config::LayerRule rule = Config::get().get_layer_rule(m_namespace);
+    if (!rule.shadow_enabled) {
+        if (m_shadow_node) {
+            wlr_scene_node_set_enabled(&m_shadow_node->node, false);
+        }
+        return;
+    }
+
+    int w = (m_width > 0) ? m_width : (m_wlr_layer_surface->surface ? m_wlr_layer_surface->surface->current.width : 0);
+    int h = (m_height > 0) ? m_height : (m_wlr_layer_surface->surface ? m_wlr_layer_surface->surface->current.height : 0);
+    if (w <= 0 || h <= 0) return;
+
+    float sigma = (rule.shadow_blur_sigma >= 0.0f) ? rule.shadow_blur_sigma : Config::get().get_shadow_blur_sigma();
+    if (sigma <= 0.0f) {
+        if (m_shadow_node) {
+            wlr_scene_node_set_enabled(&m_shadow_node->node, false);
+        }
+        return;
+    }
+
+    int radius = (rule.shadow_corner_radius >= 0) ? rule.shadow_corner_radius : Config::get().get_window_border_radius();
+    int ox = rule.shadow_offset_specified ? rule.shadow_offset_x : Config::get().get_shadow_offset_x();
+    int oy = rule.shadow_offset_specified ? rule.shadow_offset_y : Config::get().get_shadow_offset_y();
+    const std::string& col_str = !rule.shadow_color.empty() ? rule.shadow_color : Config::get().get_shadow_color_active();
+
+    if (!m_shadow_node && m_scene_layer_surface && m_scene_layer_surface->tree) {
+        float initial_color[4] = {0.0f, 0.0f, 0.0f, 0.4f};
+        m_shadow_node = wlr_scene_shadow_create(m_scene_layer_surface->tree, w, h, radius, sigma, initial_color);
+        if (m_shadow_node) {
+            wlr_scene_node_lower_to_bottom(&m_shadow_node->node);
+        }
+    }
+
+    if (!m_shadow_node) return;
+
+    sync_shadow_geometry(w, h, radius, sigma, ox, oy);
+
+    float sr = 0.0f, sg = 0.0f, sb = 0.0f, sa = 0.4f;
+    BorderPaint::parse_hex_color(col_str, sr, sg, sb, sa);
+    float final_col[4] = { sr, sg, sb, sa };
+    wlr_scene_shadow_set_color(m_shadow_node, final_col);
+
+    wlr_scene_node_set_enabled(&m_shadow_node->node, true);
 }
 
 Config::LayerAnimStyle LayerSurface::deduce_animation_style(bool is_close) const {
@@ -255,6 +338,30 @@ void LayerSurface::apply_animation_transform(int offset_x, int offset_y, double 
             wlr_scene_blur_set_alpha(m_blur_node, safe_opacity);
         }
     }
+
+    if (m_shadow_node) {
+        if (safe_opacity < 0.01f || !Config::get().is_shadow_enabled()) {
+            wlr_scene_node_set_enabled(&m_shadow_node->node, false);
+        } else {
+            wlr_scene_node_set_enabled(&m_shadow_node->node, true);
+            int sw = std::max(1, static_cast<int>(std::round(static_cast<double>(base_w) * scale_x)));
+            int sh = std::max(1, static_cast<int>(std::round(static_cast<double>(base_h) * scale_y)));
+
+            Config::LayerRule rule = Config::get().get_layer_rule(m_namespace);
+            float sigma = (rule.shadow_blur_sigma >= 0.0f) ? rule.shadow_blur_sigma : Config::get().get_shadow_blur_sigma();
+            int radius = (rule.shadow_corner_radius >= 0) ? rule.shadow_corner_radius : Config::get().get_window_border_radius();
+            int ox = rule.shadow_offset_specified ? rule.shadow_offset_x : Config::get().get_shadow_offset_x();
+            int oy = rule.shadow_offset_specified ? rule.shadow_offset_y : Config::get().get_shadow_offset_y();
+            const std::string& col_str = !rule.shadow_color.empty() ? rule.shadow_color : Config::get().get_shadow_color_active();
+
+            sync_shadow_geometry(sw, sh, radius, sigma, ox, oy);
+
+            float sr = 0.0f, sg = 0.0f, sb = 0.0f, sa = 0.4f;
+            BorderPaint::parse_hex_color(col_str, sr, sg, sb, sa);
+            float final_col[4] = { sr, sg, sb, sa * safe_opacity };
+            wlr_scene_shadow_set_color(m_shadow_node, final_col);
+        }
+    }
 }
 
 void LayerSurface::reset_animation_transform() {
@@ -266,6 +373,7 @@ void LayerSurface::reset_animation_transform() {
         wlr_scene_buffer_set_opacity(buf, 1.0f);
     }, nullptr);
     update_blur();
+    update_shadow();
 }
 
 void LayerSurface::handle_map(struct wl_listener* listener, void* data) {
@@ -281,6 +389,7 @@ void LayerSurface::handle_map(struct wl_listener* listener, void* data) {
 
     surface->m_server->arrange_layers(surface->m_wlr_layer_surface->output);
     surface->update_blur();
+    surface->update_shadow();
 
     if (surface->m_server && surface->m_server->get_animation_manager()) {
         surface->m_server->get_animation_manager()->schedule_layer_open(surface);
@@ -308,6 +417,9 @@ void LayerSurface::handle_unmap(struct wl_listener* listener, void* data) {
 
     if (surface->m_blur_node) {
         wlr_scene_node_set_enabled(&surface->m_blur_node->node, false);
+    }
+    if (surface->m_shadow_node) {
+        wlr_scene_node_set_enabled(&surface->m_shadow_node->node, false);
     }
 
     surface->m_server->arrange_layers(surface->m_wlr_layer_surface->output);
@@ -363,6 +475,7 @@ void LayerSurface::handle_surface_commit(struct wl_listener* listener, void* dat
 
     surface->update_tree();
     surface->update_blur();
+    surface->update_shadow();
 
     uint32_t committed = wlr_surface->current.committed;
     if (committed & (WLR_LAYER_SURFACE_V1_STATE_LAYER |
@@ -373,10 +486,14 @@ void LayerSurface::handle_surface_commit(struct wl_listener* listener, void* dat
         surface->m_server->arrange_layers(wlr_surface->output);
     }
 
-    if (wlr_surface->surface->mapped &&
-        wlr_surface->current.keyboard_interactive != ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE &&
-        surface->m_server->get_focused_layer_surface() != surface) {
-        surface->m_server->focus_layer_surface(surface);
+    if (wlr_surface->surface->mapped) {
+        if (wlr_surface->current.keyboard_interactive != ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE) {
+            if (surface->m_server->get_focused_layer_surface() != surface) {
+                surface->m_server->focus_layer_surface(surface);
+            }
+        } else if (surface->m_server->get_focused_layer_surface() == surface) {
+            surface->m_server->focus_layer_surface(nullptr);
+        }
     }
 }
 

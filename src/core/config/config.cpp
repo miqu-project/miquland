@@ -316,6 +316,18 @@ void Config::add_layer_rule(const LayerRule& rule) {
             if (!rule.fade_close_curve.empty()) r.fade_close_curve = rule.fade_close_curve;
             if (!rule.fade_open_enabled) r.fade_open_enabled = false;
             if (!rule.fade_close_enabled) r.fade_close_enabled = false;
+            if (rule.shadow_enabled_specified) {
+                r.shadow_enabled = rule.shadow_enabled;
+                r.shadow_enabled_specified = true;
+            }
+            if (rule.shadow_blur_sigma >= 0.0f) r.shadow_blur_sigma = rule.shadow_blur_sigma;
+            if (rule.shadow_corner_radius >= 0) r.shadow_corner_radius = rule.shadow_corner_radius;
+            if (!rule.shadow_color.empty()) r.shadow_color = rule.shadow_color;
+            if (rule.shadow_offset_specified) {
+                r.shadow_offset_x = rule.shadow_offset_x;
+                r.shadow_offset_y = rule.shadow_offset_y;
+                r.shadow_offset_specified = true;
+            }
             return;
         }
     }
@@ -1275,11 +1287,37 @@ void Config::parse_layerrule_entry(const std::string& ns, const std::string& pat
     bool in_close = (top_type == "close" || is_in_path(stack, "close"));
     bool in_fade = (top_type == "fade" || is_in_path(stack, "fade"));
     bool in_blur = (top_type == "blur" || is_in_path(stack, "blur"));
+    bool in_shadow = (top_type == "shadow" || is_in_path(stack, "shadow"));
 
     if (in_blur) {
         if (key == "enabled") {
             if (value == "true" || value == "1" || value == "yes") add_blurred_layer(ns);
         }
+        return;
+    }
+
+    if (in_shadow) {
+        LayerRule r;
+        r.ns_pattern = ns;
+        if (key == "enabled") {
+            r.shadow_enabled = (value == "true" || value == "1" || value == "yes");
+            r.shadow_enabled_specified = true;
+        } else if (key == "range" || key == "blur_sigma" || key == "sigma") {
+            try { r.shadow_blur_sigma = std::max(0.0f, std::stof(value)); } catch (...) {}
+        } else if (key == "radius" || key == "corner_radius") {
+            try { r.shadow_corner_radius = std::max(0, std::stoi(value)); } catch (...) {}
+        } else if (key == "color") {
+            r.shadow_color = value;
+        } else if (key == "offset") {
+            std::stringstream ss(value);
+            int ox = 0, oy = 0;
+            if (ss >> ox >> oy) {
+                r.shadow_offset_x = ox;
+                r.shadow_offset_y = oy;
+                r.shadow_offset_specified = true;
+            }
+        }
+        add_layer_rule(r);
         return;
     }
 
@@ -1356,6 +1394,24 @@ void Config::parse_layerrule_entry(const std::string& ns, const std::string& pat
     // Top-level properties in layerrule
     if (key == "blur") {
         if (value == "true" || value == "1" || value == "yes") add_blurred_layer(ns);
+    } else if (key == "shadow") {
+        LayerRule r;
+        r.ns_pattern = ns;
+        r.shadow_enabled = (value == "true" || value == "1" || value == "yes");
+        r.shadow_enabled_specified = true;
+        add_layer_rule(r);
+    } else if (key == "shadow_range" || key == "shadow_sigma") {
+        try { LayerRule r; r.ns_pattern = ns; r.shadow_blur_sigma = std::max(0.0f, std::stof(value)); add_layer_rule(r); } catch (...) {}
+    } else if (key == "shadow_radius") {
+        try { LayerRule r; r.ns_pattern = ns; r.shadow_corner_radius = std::max(0, std::stoi(value)); add_layer_rule(r); } catch (...) {}
+    } else if (key == "shadow_color") {
+        LayerRule r; r.ns_pattern = ns; r.shadow_color = value; add_layer_rule(r);
+    } else if (key == "shadow_offset") {
+        std::stringstream ss(value);
+        int ox = 0, oy = 0;
+        if (ss >> ox >> oy) {
+            LayerRule r; r.ns_pattern = ns; r.shadow_offset_x = ox; r.shadow_offset_y = oy; r.shadow_offset_specified = true; add_layer_rule(r);
+        }
     } else if (key == "animation" || key == "animation_open" || key == "animation_close") {
         LayerRule r;
         r.ns_pattern = ns;
@@ -1873,6 +1929,15 @@ void Config::save() {
         file << "layerrule \"" << lr.ns_pattern << "\" {\n";
         if (is_layer_blur_enabled(lr.ns_pattern)) {
             file << "    blur = true\n";
+        }
+        if (lr.shadow_enabled_specified && lr.shadow_enabled) {
+            file << "    shadow {\n";
+            file << "        enabled = true\n";
+            if (lr.shadow_blur_sigma >= 0.0f) file << "        range = " << lr.shadow_blur_sigma << "\n";
+            if (lr.shadow_corner_radius >= 0) file << "        radius = " << lr.shadow_corner_radius << "\n";
+            if (!lr.shadow_color.empty()) file << "        color = " << lr.shadow_color << "\n";
+            if (lr.shadow_offset_specified) file << "        offset = " << lr.shadow_offset_x << " " << lr.shadow_offset_y << "\n";
+            file << "    }\n";
         }
         if (lr.anim_style_open != LayerAnimStyle::DefaultAuto || lr.duration_open_ms > 0 || !lr.curve_open.empty()) {
             file << "    open {\n";

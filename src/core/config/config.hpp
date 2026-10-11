@@ -331,6 +331,16 @@ public:
         bool fade_close_enabled = true;
         int fade_close_duration_ms = -1;
         std::string fade_close_curve = "";
+
+        // Shadow configuration
+        bool shadow_enabled = false;
+        bool shadow_enabled_specified = false;
+        float shadow_blur_sigma = -1.0f;
+        int shadow_corner_radius = -1;
+        std::string shadow_color = "";
+        int shadow_offset_x = 0;
+        int shadow_offset_y = 0;
+        bool shadow_offset_specified = false;
     };
 
     bool is_layer_animations_enabled() const { return m_layer_animations_enabled; }

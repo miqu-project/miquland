@@ -6,6 +6,7 @@
 #include "core/output.hpp"
 #include "core/input/input.hpp"
 #include "core/config/config.hpp"
+#include "core/common/border_paint.hpp"
 #include <ctime>
 #include <cmath>
 #include <algorithm>
@@ -839,9 +840,44 @@ void AnimationManager::schedule_layer_unmap_close(LayerSurface* surface) {
         }
     }
 
+    Config::LayerRule rule = Config::get().get_layer_rule(surface->get_namespace());
+    struct wlr_scene_shadow* shadow = nullptr;
+    float shadow_sigma = 0.0f;
+    int shadow_radius = 0;
+    int shadow_ox = 0;
+    int shadow_oy = 0;
+    float shadow_col[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    if (rule.shadow_enabled && Config::get().is_shadow_enabled() &&
+        surface->get_layer() != ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
+        shadow_sigma = (rule.shadow_blur_sigma >= 0.0f) ? rule.shadow_blur_sigma : Config::get().get_shadow_blur_sigma();
+        shadow_radius = (rule.shadow_corner_radius >= 0) ? rule.shadow_corner_radius : Config::get().get_window_border_radius();
+        shadow_ox = rule.shadow_offset_specified ? rule.shadow_offset_x : Config::get().get_shadow_offset_x();
+        shadow_oy = rule.shadow_offset_specified ? rule.shadow_offset_y : Config::get().get_shadow_offset_y();
+        const std::string& col_str = !rule.shadow_color.empty() ? rule.shadow_color : Config::get().get_shadow_color_active();
+        BorderPaint::parse_hex_color(col_str, shadow_col[0], shadow_col[1], shadow_col[2], shadow_col[3]);
+
+        if (shadow_sigma > 0.0f) {
+            shadow = wlr_scene_shadow_create(closing_tree, base_w, base_h, shadow_radius, shadow_sigma, shadow_col);
+            if (shadow) {
+                wlr_scene_node_lower_to_bottom(&shadow->node);
+                int pad = static_cast<int>(std::ceil(std::max(4.0f, shadow_sigma * 2.5f)));
+                wlr_scene_node_set_position(&shadow->node, -pad + shadow_ox, -pad + shadow_oy);
+                wlr_scene_shadow_set_size(shadow, base_w + 2 * pad, base_h + 2 * pad);
+
+                struct clipped_region cr = clipped_region_get_default();
+                cr.area.x = pad - shadow_ox;
+                cr.area.y = pad - shadow_oy;
+                cr.area.width = base_w;
+                cr.area.height = base_h;
+                cr.corners = corner_radii_all(shadow_radius);
+                wlr_scene_shadow_set_clipped_region(shadow, cr);
+            }
+        }
+    }
+
     wlr_scene_node_set_position(&closing_tree->node, surface->get_geo_x(), surface->get_geo_y());
 
-    Config::LayerRule rule = Config::get().get_layer_rule(surface->get_namespace());
     int duration = (rule.duration_close_ms > 0) ? rule.duration_close_ms : Config::get().get_layer_close_duration_ms();
     if (duration <= 0) {
         wlr_scene_node_destroy(&closing_tree->node);
@@ -893,6 +929,12 @@ void AnimationManager::schedule_layer_unmap_close(LayerSurface* surface) {
     anim.id = m_next_id++;
     anim.scene_tree = closing_tree;
     anim.blur_node = blur;
+    anim.shadow_node = shadow;
+    anim.shadow_sigma = shadow_sigma;
+    anim.shadow_radius = shadow_radius;
+    anim.shadow_ox = shadow_ox;
+    anim.shadow_oy = shadow_oy;
+    std::copy(std::begin(shadow_col), std::end(shadow_col), anim.shadow_color);
     anim.base_geo_x = surface->get_geo_x();
     anim.base_geo_y = surface->get_geo_y();
     anim.base_width = base_w;
@@ -1380,6 +1422,33 @@ void AnimationManager::tick(double now_ms) {
                 int bh = std::max(1, static_cast<int>(std::round(static_cast<double>(anim.base_height) * cur_scale_y)));
                 wlr_scene_blur_set_size(anim.blur_node, bw, bh);
                 wlr_scene_blur_set_alpha(anim.blur_node, cur_opacity);
+            }
+        }
+
+        if (anim.shadow_node) {
+            if (cur_opacity < 0.01f || !Config::get().is_shadow_enabled()) {
+                wlr_scene_node_set_enabled(&anim.shadow_node->node, false);
+            } else {
+                wlr_scene_node_set_enabled(&anim.shadow_node->node, true);
+                int sw = std::max(1, static_cast<int>(std::round(static_cast<double>(anim.base_width) * cur_scale_x)));
+                int sh = std::max(1, static_cast<int>(std::round(static_cast<double>(anim.base_height) * cur_scale_y)));
+                int pad = static_cast<int>(std::ceil(std::max(4.0f, anim.shadow_sigma * 2.5f)));
+
+                wlr_scene_node_set_position(&anim.shadow_node->node, -pad + anim.shadow_ox, -pad + anim.shadow_oy);
+                wlr_scene_shadow_set_size(anim.shadow_node, sw + 2 * pad, sh + 2 * pad);
+                wlr_scene_shadow_set_blur_sigma(anim.shadow_node, anim.shadow_sigma);
+                wlr_scene_shadow_set_corner_radius(anim.shadow_node, anim.shadow_radius);
+
+                struct clipped_region cr = clipped_region_get_default();
+                cr.area.x = pad - anim.shadow_ox;
+                cr.area.y = pad - anim.shadow_oy;
+                cr.area.width = sw;
+                cr.area.height = sh;
+                cr.corners = corner_radii_all(anim.shadow_radius);
+                wlr_scene_shadow_set_clipped_region(anim.shadow_node, cr);
+
+                float final_col[4] = { anim.shadow_color[0], anim.shadow_color[1], anim.shadow_color[2], anim.shadow_color[3] * cur_opacity };
+                wlr_scene_shadow_set_color(anim.shadow_node, final_col);
             }
         }
 

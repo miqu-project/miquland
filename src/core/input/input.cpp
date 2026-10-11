@@ -583,7 +583,15 @@ void InputManager::recheck_cursor_focus() {
     }
 
     if (target_view && !target_view->is_override_redirect()) {
-        if (target_view != m_server->get_focused_view()) {
+        struct wlr_surface* current_kb_surface = m_seat ? m_seat->keyboard_state.focused_surface : nullptr;
+        struct wlr_surface* target_surface = nullptr;
+        if (target_view->get_type() == ViewType::Xdg && target_view->get_xdg_toplevel()) {
+            target_surface = target_view->get_xdg_toplevel()->base->surface;
+        } else if (target_view->get_type() == ViewType::XWayland && target_view->get_xwayland_surface()) {
+            target_surface = target_view->get_xwayland_surface()->surface;
+        }
+
+        if (target_view != m_server->get_focused_view() || (target_surface && current_kb_surface != target_surface)) {
             target_view->focus();
         }
     } else {
@@ -1041,7 +1049,7 @@ void InputManager::handle_cursor_button(struct wl_listener* listener, void* data
             }
         }
 
-        if (target_view && !target_view->is_override_redirect() && target_view != manager->m_server->get_focused_view()) {
+        if (target_view && !target_view->is_override_redirect()) {
             target_view->focus();
         }
     }
@@ -1277,7 +1285,7 @@ void InputManager::handle_cursor_touch_down(struct wl_listener* listener, void* 
         if (top_dialog) target_view = top_dialog;
     }
 
-    if (target_view && !target_view->is_override_redirect() && target_view != manager->m_server->get_focused_view()) {
+    if (target_view && !target_view->is_override_redirect()) {
         target_view->focus();
     }
 
