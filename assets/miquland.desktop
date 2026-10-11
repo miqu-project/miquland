@@ -2,6 +2,7 @@
 Name=Miquland
 Comment=A modern dynamic tiling Wayland compositor
 Exec=miquland
+Icon=miquland
 Type=Application
 DesktopNames=miquland
 Keywords=wayland;compositor;tiling;wm;windowmanager;
