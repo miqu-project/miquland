@@ -545,6 +545,7 @@ void InputManager::notify_view_destroyed(View* view) {
 
 void InputManager::recheck_cursor_focus() {
     if (m_server->is_locked()) return;
+    if (m_server->get_animation_manager() && m_server->get_animation_manager()->is_workspace_animating()) return;
 
     m_border_hover_view = nullptr;
     m_border_hover_edges = 0;
@@ -896,11 +897,13 @@ void InputManager::process_cursor_motion(uint32_t time) {
     }
 
     // Hover to focus: if enabled and cursor hovers over a view, focus it!
-    // Inhibit focus switching while a popup grab is active or while the focused view has active popups
+    // Inhibit focus switching while a popup grab is active, while the focused view has active popups,
+    // or during an active workspace sliding animation/swipe.
     bool has_grab = wlr_seat_pointer_has_grab(m_seat) || wlr_seat_keyboard_has_grab(m_seat);
     bool focused_has_popups = (m_server->get_focused_view() && m_server->get_focused_view()->has_popups());
+    bool ws_animating = (m_server->get_animation_manager() && m_server->get_animation_manager()->is_workspace_animating());
 
-    if (!has_grab && !focused_has_popups) {
+    if (!has_grab && !focused_has_popups && !ws_animating) {
         if (target_view && !target_view->is_override_redirect() && target_view != m_server->get_focused_view()) {
             target_view->focus();
         }

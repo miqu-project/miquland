@@ -496,7 +496,13 @@ void Server::set_focused_view(View* view) {
             wlr_foreign_toplevel_handle_v1_set_activated(prev->get_foreign_toplevel(), false);
         }
     }
-    if (m_focused_view) m_focused_view->update_frame();
+    if (m_focused_view) {
+        m_focused_view->update_frame();
+    } else if (!m_focused_layer_surface) {
+        if (m_input_manager && m_input_manager->get_seat()) {
+            wlr_seat_keyboard_notify_clear_focus(m_input_manager->get_seat());
+        }
+    }
 }
 
 View* Server::view_at(double lx, double ly, struct wlr_surface** surface, double* sx, double* sy) {
@@ -513,6 +519,7 @@ View* Server::view_at(double lx, double ly, struct wlr_surface** surface, double
         auto* scene_buffer = wlr_scene_buffer_from_node(node);
         auto* scene_surface = wlr_scene_surface_try_from_buffer(scene_buffer);
         View* found_view = nullptr;
+        bool is_inactive_view = false;
 
         // Find the View associated with this scene node hierarchy
         struct wlr_scene_tree* tree = node->parent;
@@ -520,6 +527,11 @@ View* Server::view_at(double lx, double ly, struct wlr_surface** surface, double
             if (tree->node.data != nullptr) {
                 if (is_valid_view_ptr(tree->node.data)) {
                     auto* possible_view = static_cast<View*>(tree->node.data);
+                    if (possible_view->get_workspace() && m_workspace_manager &&
+                        possible_view->get_workspace() != m_workspace_manager->get_active_workspace()) {
+                        is_inactive_view = true;
+                        break;
+                    }
                     if (!possible_view->is_animating_close()) {
                         found_view = possible_view;
                     }
@@ -527,6 +539,12 @@ View* Server::view_at(double lx, double ly, struct wlr_surface** surface, double
                 }
             }
             tree = tree->node.parent;
+        }
+
+        if (is_inactive_view) {
+            disabled_nodes.push_back(node);
+            wlr_scene_node_set_enabled(node, false);
+            continue;
         }
 
         if (scene_surface) {
@@ -609,11 +627,11 @@ void Server::focus_layer_surface(LayerSurface* surface) {
         }
     } else {
         m_focused_layer_surface = nullptr;
-        if (m_focused_view && m_focused_view->is_mapped()) {
+        Workspace* active_ws = m_workspace_manager ? m_workspace_manager->get_active_workspace() : nullptr;
+        if (m_focused_view && m_focused_view->is_mapped() && m_focused_view->get_workspace() == active_ws) {
             m_focused_view->focus();
-        } else if (m_workspace_manager) {
-            Workspace* ws = m_workspace_manager->get_active_workspace();
-            View* best = m_workspace_manager->find_best_focus_view(ws);
+        } else if (active_ws) {
+            View* best = m_workspace_manager->find_best_focus_view(active_ws);
             if (best) {
                 best->focus();
             } else {
