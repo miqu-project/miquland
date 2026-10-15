@@ -250,6 +250,116 @@ float Config::get_rule_opacity(const std::string& app_id, const std::string& tit
     return default_val;
 }
 
+static bool parse_dimension_token(const std::string& token, int total, int& out) {
+    if (token.empty()) return false;
+    std::string s = token;
+    size_t start = s.find_first_not_of(" \t");
+    size_t end = s.find_last_not_of(" \t");
+    if (start == std::string::npos) return false;
+    s = s.substr(start, end - start + 1);
+
+    if (s.back() == '%') {
+        try {
+            double pct = std::stod(s.substr(0, s.size() - 1));
+            if (pct <= 0.0) return false;
+            out = static_cast<int>(std::round(static_cast<double>(total) * (pct / 100.0)));
+            return out > 0;
+        } catch (...) {
+            return false;
+        }
+    } else {
+        try {
+            out = std::stoi(s);
+            return out > 0;
+        } catch (...) {
+            return false;
+        }
+    }
+}
+
+static bool parse_coordinate_token(const std::string& token, int total, int& out) {
+    if (token.empty()) return false;
+    std::string s = token;
+    size_t start = s.find_first_not_of(" \t");
+    size_t end = s.find_last_not_of(" \t");
+    if (start == std::string::npos) return false;
+    s = s.substr(start, end - start + 1);
+
+    if (s.back() == '%') {
+        try {
+            double pct = std::stod(s.substr(0, s.size() - 1));
+            out = static_cast<int>(std::round(static_cast<double>(total) * (pct / 100.0)));
+            return true;
+        } catch (...) {
+            return false;
+        }
+    } else {
+        try {
+            out = std::stoi(s);
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+}
+
+bool Config::should_center(const std::string& app_id, const std::string& title) const {
+    for (const auto& r : m_window_rules) {
+        if (r.rule == "center" && (matches_target(r.target, app_id) || matches_target(r.target, title))) {
+            return (r.extra.empty() || r.extra == "true" || r.extra == "1" || r.extra == "yes");
+        }
+    }
+    return false;
+}
+
+bool Config::get_rule_size(const std::string& app_id, const std::string& title,
+                           int& out_w, int& out_h, int monitor_w, int monitor_h) const {
+    for (const auto& r : m_window_rules) {
+        if (r.rule == "size" && (matches_target(r.target, app_id) || matches_target(r.target, title))) {
+            std::string s = r.extra;
+            for (char& c : s) {
+                if (c == ',' || c == 'x' || c == 'X') c = ' ';
+            }
+            std::stringstream ss(s);
+            std::string tok_w, tok_h;
+            if (ss >> tok_w >> tok_h) {
+                int w = 0, h = 0;
+                if (parse_dimension_token(tok_w, monitor_w, w) &&
+                    parse_dimension_token(tok_h, monitor_h, h)) {
+                    out_w = w;
+                    out_h = h;
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+bool Config::get_rule_position(const std::string& app_id, const std::string& title,
+                               int& out_x, int& out_y, int monitor_w, int monitor_h) const {
+    for (const auto& r : m_window_rules) {
+        if ((r.rule == "move" || r.rule == "position") && (matches_target(r.target, app_id) || matches_target(r.target, title))) {
+            std::string s = r.extra;
+            for (char& c : s) {
+                if (c == ',' || c == 'x' || c == 'X') c = ' ';
+            }
+            std::stringstream ss(s);
+            std::string tok_x, tok_y;
+            if (ss >> tok_x >> tok_y) {
+                int x = 0, y = 0;
+                if (parse_coordinate_token(tok_x, monitor_w, x) &&
+                    parse_coordinate_token(tok_y, monitor_h, y)) {
+                    out_x = x;
+                    out_y = y;
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 bool Config::is_window_shadow_enabled(const std::string& app_id, const std::string& title, bool default_val) const {
     for (const auto& r : m_window_rules) {
         if (r.rule == "shadow" || r.rule == "shadow_enabled") {
@@ -1750,6 +1860,9 @@ void Config::parse_windowrule_entry(const std::string& target, const std::string
     } else if (key == "size") {
         file_rules.push_back({ "size", target, value });
         has_rules_in_file = true;
+    } else if (key == "move" || key == "position") {
+        file_rules.push_back({ "move", target, value });
+        has_rules_in_file = true;
     } else if (key == "blur") {
         file_rules.push_back({ "blur", target, value });
         has_rules_in_file = true;
@@ -2166,6 +2279,7 @@ void Config::save() {
         else if (r.rule == "opacity") file << "    opacity = " << r.extra << "\n";
         else if (r.rule == "center") file << "    center = true\n";
         else if (r.rule == "size") file << "    size = " << r.extra << "\n";
+        else if (r.rule == "move" || r.rule == "position") file << "    move = " << r.extra << "\n";
         else if (r.rule == "immediate" || r.rule == "tearing") file << "    immediate = true\n";
         else if (r.rule == "shadow" || r.rule == "shadow_enabled") file << "    shadow = " << (r.extra.empty() ? "true" : r.extra) << "\n";
         else if (r.rule == "shadow_range") file << "    shadow_range = " << r.extra << "\n";

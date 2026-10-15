@@ -1708,6 +1708,7 @@ void View::handle_unmap(struct wl_listener* listener, void* data) {
     view->m_current_anim_width = 0;
     view->m_current_anim_height = 0;
     view->m_saved_geometry = {};
+    view->m_has_user_moved = false;
 
     if (view->m_server && view->m_server->get_animation_manager()) {
         view->m_server->get_animation_manager()->cancel_for_view(view);
@@ -1788,7 +1789,23 @@ void View::handle_commit(struct wl_listener* listener, void* data) {
             }
 
             if (view->is_dialog() || view->is_floating()) {
-                wlr_xdg_toplevel_set_size(view->m_xdg_toplevel, 0, 0);
+                int rule_w = 0, rule_h = 0;
+                auto* out_mgr = view->m_server ? view->m_server->get_output_manager() : nullptr;
+                struct wlr_box usable = out_mgr ? out_mgr->get_primary_usable_geometry() : wlr_box{0, 0, 1920, 1080};
+                if (usable.width <= 0) usable.width = 1920;
+                if (usable.height <= 0) usable.height = 1080;
+
+                if (Config::get().get_rule_size(app_id, title, rule_w, rule_h, usable.width, usable.height)) {
+                    int bw = Config::get().get_window_border_width();
+                    int client_w = std::max(1, rule_w - 2 * bw);
+                    int client_h = std::max(1, rule_h - 2 * bw);
+                    if (view->m_xdg_toplevel->resource && wl_resource_get_version(view->m_xdg_toplevel->resource) >= 4) {
+                        wlr_xdg_toplevel_set_bounds(view->m_xdg_toplevel, client_w, client_h);
+                    }
+                    wlr_xdg_toplevel_set_size(view->m_xdg_toplevel, client_w, client_h);
+                } else {
+                    wlr_xdg_toplevel_set_size(view->m_xdg_toplevel, 0, 0);
+                }
             } else {
                 auto* ws_mgr = view->m_server->get_workspace_manager();
                 int target_ws_id = Config::get().get_target_workspace(app_id, title);
@@ -1829,7 +1846,7 @@ void View::handle_commit(struct wl_listener* listener, void* data) {
             return;
         }
 
-        if (view->m_mapped && view->is_dialog()) {
+        if (view->m_mapped && (view->is_dialog() || view->is_floating())) {
             auto* xdg_surf = view->m_xdg_toplevel->base;
             int gw = xdg_surf->current.geometry.width;
             int gh = xdg_surf->current.geometry.height;

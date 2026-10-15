@@ -60,6 +60,8 @@ public:
     bool is_dialog() const { return m_is_dialog; }
     bool is_floating() const { return m_is_floating; }
     void set_floating(bool floating);
+    bool has_user_moved() const { return m_has_user_moved; }
+    void set_user_moved(bool moved) { m_has_user_moved = moved; }
     View* get_parent_view() const { return m_parent_view; }
     void set_parent_view(View* parent);
     void update_parent_relationship();
@@ -165,6 +167,7 @@ private:
     bool m_is_override_redirect = false;
     bool m_is_fullscreen = false;
     bool m_is_floating = false;
+    bool m_has_user_moved = false;
     bool m_is_overview_scaled = false;
     double m_overview_scale = 1.0;
     int m_x = 0;

@@ -464,6 +464,9 @@ public:
     bool should_tear(const std::string& app_id, const std::string& title) const;
     int get_target_workspace(const std::string& app_id, const std::string& title) const;
     float get_rule_opacity(const std::string& app_id, const std::string& title, float default_val) const;
+    bool should_center(const std::string& app_id, const std::string& title) const;
+    bool get_rule_size(const std::string& app_id, const std::string& title, int& out_w, int& out_h, int monitor_w, int monitor_h) const;
+    bool get_rule_position(const std::string& app_id, const std::string& title, int& out_x, int& out_y, int monitor_w, int monitor_h) const;
     bool is_window_shadow_enabled(const std::string& app_id, const std::string& title, bool default_val) const;
     float get_window_shadow_blur_sigma(const std::string& app_id, const std::string& title, float default_val) const;
     bool get_window_shadow_offset(const std::string& app_id, const std::string& title, double& out_ox, double& out_oy) const;

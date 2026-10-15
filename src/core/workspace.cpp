@@ -307,6 +307,14 @@ void Workspace::arrange_floating_views(const struct wlr_box& usable_box) {
             if (gh > 0) req_h = gh + 2 * bw;
         }
 
+        std::string app_id = fview->get_app_id();
+        std::string title = fview->get_title();
+        int rule_w = 0, rule_h = 0;
+        if (Config::get().get_rule_size(app_id, title, rule_w, rule_h, base_w, base_h)) {
+            req_w = rule_w;
+            req_h = rule_h;
+        }
+
         View* parent = fview->get_parent_view();
         if (parent && parent->is_mapped() && parent->get_width() > 0 && parent->get_height() > 0) {
             int max_w = std::max(50, parent->get_width() - 20);
@@ -325,9 +333,18 @@ void Workspace::arrange_floating_views(const struct wlr_box& usable_box) {
             int dx = fview->get_x();
             int dy = fview->get_y();
 
-            if (dx <= 0 && dy <= 0) {
-                dx = base_x + (base_w - dw) / 2;
-                dy = base_y + (base_h - dh) / 2;
+            bool center_rule = Config::get().should_center(app_id, title);
+            int rule_pos_x = 0, rule_pos_y = 0;
+            bool has_rule_pos = Config::get().get_rule_position(app_id, title, rule_pos_x, rule_pos_y, base_w, base_h);
+
+            if (!fview->has_user_moved()) {
+                if (has_rule_pos) {
+                    dx = base_x + rule_pos_x;
+                    dy = base_y + rule_pos_y;
+                } else if (center_rule || (dx <= 0 && dy <= 0)) {
+                    dx = base_x + (base_w - dw) / 2;
+                    dy = base_y + (base_h - dh) / 2;
+                }
             } else {
                 dx = std::clamp(dx, base_x, std::max(base_x, base_x + base_w - dw));
                 dy = std::clamp(dy, base_y, std::max(base_y, base_y + base_h - dh));

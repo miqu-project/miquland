@@ -765,6 +765,7 @@ void InputManager::process_cursor_motion(uint32_t time) {
     if (m_cursor_mode == CursorMode::Move) {
         if (m_grabbed_view) {
             struct wlr_box box = calculate_interactive_move(m_grab_initial_view_box, m_cursor->x - m_grab_x, m_cursor->y - m_grab_y);
+            m_grabbed_view->set_user_moved(true);
             m_grabbed_view->set_geometry(box.x, box.y, box.width, box.height);
         }
         return;
