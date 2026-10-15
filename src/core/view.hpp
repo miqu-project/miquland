@@ -140,7 +140,7 @@ private:
 
     void setup_foreign_toplevel();
     void update_blur();
-    void sync_shadow_geometry(int w, int h, int r, float sigma, int ox, int oy);
+    void sync_shadow_geometry(int w, int h, int r, float sigma, double ox, double oy);
 
     Server* m_server = nullptr;
     Workspace* m_workspace = nullptr;

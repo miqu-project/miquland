@@ -780,18 +780,20 @@ static void render_border_shading(cairo_t* cr, int height, float strength) {
     }
 }
 
-void View::sync_shadow_geometry(int w, int h, int r, float sigma, int ox, int oy) {
+void View::sync_shadow_geometry(int w, int h, int r, float sigma, double ox, double oy) {
     if (!m_shadow_node) return;
     int pad = static_cast<int>(std::ceil(std::max(4.0f, sigma * 2.5f)));
+    int int_ox = static_cast<int>(std::round(ox));
+    int int_oy = static_cast<int>(std::round(oy));
 
-    wlr_scene_node_set_position(&m_shadow_node->node, -pad + ox, -pad + oy);
+    wlr_scene_node_set_position(&m_shadow_node->node, -pad + int_ox, -pad + int_oy);
     wlr_scene_shadow_set_size(m_shadow_node, w + 2 * pad, h + 2 * pad);
     wlr_scene_shadow_set_blur_sigma(m_shadow_node, sigma);
     wlr_scene_shadow_set_corner_radius(m_shadow_node, r);
 
     struct clipped_region cr = clipped_region_get_default();
-    cr.area.x = pad - ox;
-    cr.area.y = pad - oy;
+    cr.area.x = pad - int_ox;
+    cr.area.y = pad - int_oy;
     cr.area.width = w;
     cr.area.height = h;
     cr.corners = corner_radii_all(r);
@@ -799,7 +801,10 @@ void View::sync_shadow_geometry(int w, int h, int r, float sigma, int ox, int oy
 }
 
 void View::update_shadow() {
-    if (!Config::get().is_shadow_enabled() || !m_mapped || m_width <= 0 || m_height <= 0 ||
+    std::string app_id = get_app_id();
+    std::string title = get_title();
+    bool enabled = Config::get().is_window_shadow_enabled(app_id, title, Config::get().is_shadow_enabled());
+    if (!enabled || !m_mapped || m_width <= 0 || m_height <= 0 ||
         m_is_fullscreen || m_is_override_redirect) {
         if (m_shadow_node) {
             wlr_scene_node_set_enabled(&m_shadow_node->node, false);
@@ -807,7 +812,7 @@ void View::update_shadow() {
         return;
     }
 
-    float sigma = Config::get().get_shadow_blur_sigma();
+    float sigma = Config::get().get_window_shadow_blur_sigma(app_id, title, Config::get().get_shadow_blur_sigma());
     if (sigma <= 0.0f) {
         if (m_shadow_node) {
             wlr_scene_node_set_enabled(&m_shadow_node->node, false);
@@ -825,15 +830,19 @@ void View::update_shadow() {
 
     if (!m_shadow_node) return;
 
-    int ox = Config::get().get_shadow_offset_x();
-    int oy = Config::get().get_shadow_offset_y();
-    int radius = Config::get().get_window_border_radius();
+    double ox = Config::get().get_shadow_offset_x();
+    double oy = Config::get().get_shadow_offset_y();
+    Config::get().get_window_shadow_offset(app_id, title, ox, oy);
+
+    int radius = Config::get().get_window_shadow_corner_radius(app_id, title, Config::get().get_window_border_radius());
 
     sync_shadow_geometry(m_width, m_height, radius, sigma, ox, oy);
 
-    const std::string& col_str = is_focused()
+    const std::string& default_col = is_focused()
         ? Config::get().get_shadow_color_active()
         : Config::get().get_shadow_color_inactive();
+    std::string col_str = Config::get().get_window_shadow_color(app_id, title, default_col);
+
     float sr = 0.0f, sg = 0.0f, sb = 0.0f, sa = 0.4f;
     BorderPaint::parse_hex_color(col_str, sr, sg, sb, sa);
 
@@ -1095,23 +1104,30 @@ void View::apply_animation_transform(double scale, float opacity) {
     }
 
     if (m_shadow_node) {
-        if (safe_opacity < 0.01f || !Config::get().is_shadow_enabled() || m_is_fullscreen || m_is_override_redirect) {
+        std::string app_id = get_app_id();
+        std::string title = get_title();
+        bool shadow_enabled = Config::get().is_window_shadow_enabled(app_id, title, Config::get().is_shadow_enabled());
+        if (safe_opacity < 0.01f || !shadow_enabled || m_is_fullscreen || m_is_override_redirect) {
             wlr_scene_node_set_enabled(&m_shadow_node->node, false);
         } else {
             wlr_scene_node_set_enabled(&m_shadow_node->node, true);
-            float sigma = Config::get().get_shadow_blur_sigma() * static_cast<float>(scale);
-            int ox = static_cast<int>(std::round(static_cast<double>(Config::get().get_shadow_offset_x()) * scale));
-            int oy = static_cast<int>(std::round(static_cast<double>(Config::get().get_shadow_offset_y()) * scale));
-            int r = (!m_is_fullscreen && !m_is_override_redirect) ? Config::get().get_window_border_radius() : 0;
+            float sigma = Config::get().get_window_shadow_blur_sigma(app_id, title, Config::get().get_shadow_blur_sigma()) * static_cast<float>(scale);
+            double base_ox = Config::get().get_shadow_offset_x();
+            double base_oy = Config::get().get_shadow_offset_y();
+            Config::get().get_window_shadow_offset(app_id, title, base_ox, base_oy);
+            double ox = base_ox * scale;
+            double oy = base_oy * scale;
+            int r = (!m_is_fullscreen && !m_is_override_redirect) ? Config::get().get_window_shadow_corner_radius(app_id, title, Config::get().get_window_border_radius()) : 0;
             int scaled_r = static_cast<int>(std::round(static_cast<double>(r) * scale));
             int anim_w = std::max(1, static_cast<int>(std::round(cur_w)));
             int anim_h = std::max(1, static_cast<int>(std::round(cur_h)));
 
             sync_shadow_geometry(anim_w, anim_h, scaled_r, sigma, ox, oy);
 
-            const std::string& col_str = is_focused()
+            const std::string& default_col = is_focused()
                 ? Config::get().get_shadow_color_active()
                 : Config::get().get_shadow_color_inactive();
+            std::string col_str = Config::get().get_window_shadow_color(app_id, title, default_col);
             float sr = 0.0f, sg = 0.0f, sb = 0.0f, sa = 0.4f;
             BorderPaint::parse_hex_color(col_str, sr, sg, sb, sa);
             float final_col[4] = { sr, sg, sb, sa * safe_opacity };
@@ -1217,11 +1233,15 @@ void View::apply_geometry_animation(int cur_x, int cur_y, int cur_w, int cur_h) 
         wlr_scene_blur_set_size(m_blur_node, cur_w, cur_h);
     }
 
-    if (m_shadow_node && Config::get().is_shadow_enabled() && !m_is_fullscreen && !m_is_override_redirect) {
-        float sigma = Config::get().get_shadow_blur_sigma();
-        int ox = Config::get().get_shadow_offset_x();
-        int oy = Config::get().get_shadow_offset_y();
-        int r = Config::get().get_window_border_radius();
+    std::string app_id = get_app_id();
+    std::string title = get_title();
+    bool shadow_enabled = Config::get().is_window_shadow_enabled(app_id, title, Config::get().is_shadow_enabled());
+    if (m_shadow_node && shadow_enabled && !m_is_fullscreen && !m_is_override_redirect) {
+        float sigma = Config::get().get_window_shadow_blur_sigma(app_id, title, Config::get().get_shadow_blur_sigma());
+        double ox = Config::get().get_shadow_offset_x();
+        double oy = Config::get().get_shadow_offset_y();
+        Config::get().get_window_shadow_offset(app_id, title, ox, oy);
+        int r = Config::get().get_window_shadow_corner_radius(app_id, title, Config::get().get_window_border_radius());
         sync_shadow_geometry(cur_w, cur_h, r, sigma, ox, oy);
     }
 }

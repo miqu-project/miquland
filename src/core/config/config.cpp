@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <algorithm>
 #include <cctype>
+#include <fnmatch.h>
 
 namespace miquland {
 
@@ -109,8 +110,8 @@ void Config::set_defaults() {
     m_shadow_blur_sigma = 12.0f;
     m_shadow_color_active = "#00000066";
     m_shadow_color_inactive = "#00000044";
-    m_shadow_offset_x = 0;
-    m_shadow_offset_y = 4;
+    m_shadow_offset_x = 0.0;
+    m_shadow_offset_y = 4.0;
 
     m_window_border_width = 2;
     m_window_border_radius = 10;
@@ -249,6 +250,71 @@ float Config::get_rule_opacity(const std::string& app_id, const std::string& tit
     return default_val;
 }
 
+bool Config::is_window_shadow_enabled(const std::string& app_id, const std::string& title, bool default_val) const {
+    for (const auto& r : m_window_rules) {
+        if (r.rule == "shadow" || r.rule == "shadow_enabled") {
+            if (matches_target(r.target, app_id) || matches_target(r.target, title)) {
+                return (r.extra.empty() || r.extra == "true" || r.extra == "1" || r.extra == "yes");
+            }
+        }
+    }
+    return default_val;
+}
+
+float Config::get_window_shadow_blur_sigma(const std::string& app_id, const std::string& title, float default_val) const {
+    for (const auto& r : m_window_rules) {
+        if (r.rule == "shadow_range" || r.rule == "shadow_blur_sigma" || r.rule == "shadow_sigma") {
+            if (matches_target(r.target, app_id) || matches_target(r.target, title)) {
+                try {
+                    return std::max(0.0f, std::stof(r.extra));
+                } catch (...) {}
+            }
+        }
+    }
+    return default_val;
+}
+
+bool Config::get_window_shadow_offset(const std::string& app_id, const std::string& title, double& out_ox, double& out_oy) const {
+    for (const auto& r : m_window_rules) {
+        if (r.rule == "shadow_offset") {
+            if (matches_target(r.target, app_id) || matches_target(r.target, title)) {
+                std::stringstream ss(r.extra);
+                double ox = 0.0, oy = 0.0;
+                if (ss >> ox >> oy) {
+                    out_ox = ox;
+                    out_oy = oy;
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+std::string Config::get_window_shadow_color(const std::string& app_id, const std::string& title, const std::string& default_col) const {
+    for (const auto& r : m_window_rules) {
+        if (r.rule == "shadow_color") {
+            if (matches_target(r.target, app_id) || matches_target(r.target, title)) {
+                if (!r.extra.empty()) return r.extra;
+            }
+        }
+    }
+    return default_col;
+}
+
+int Config::get_window_shadow_corner_radius(const std::string& app_id, const std::string& title, int default_val) const {
+    for (const auto& r : m_window_rules) {
+        if (r.rule == "shadow_radius" || r.rule == "shadow_corner_radius") {
+            if (matches_target(r.target, app_id) || matches_target(r.target, title)) {
+                try {
+                    return std::max(0, std::stoi(r.extra));
+                } catch (...) {}
+            }
+        }
+    }
+    return default_val;
+}
+
 const MonitorRule* Config::find_monitor_rule(const std::string& name) const {
     const MonitorRule* fallback = nullptr;
     for (const auto& r : m_monitor_rules) {
@@ -262,15 +328,43 @@ const MonitorRule* Config::find_monitor_rule(const std::string& name) const {
     return fallback;
 }
 
+static bool matches_layer_pattern(const std::string& pattern, const std::string& ns) {
+    if (pattern.empty() || ns.empty()) return false;
+    if (pattern == "*" || pattern == ns) return true;
+
+    // Standard shell wildcard/glob pattern match (*, ?, [])
+    if (fnmatch(pattern.c_str(), ns.c_str(), FNM_CASEFOLD) == 0) {
+        return true;
+    }
+
+    // Case-insensitive comparisons
+    std::string l_pat = pattern;
+    std::string l_ns = ns;
+    std::transform(l_pat.begin(), l_pat.end(), l_pat.begin(), ::tolower);
+    std::transform(l_ns.begin(), l_ns.end(), l_ns.begin(), ::tolower);
+
+    if (l_pat == l_ns) return true;
+
+    // Hierarchical sub-namespace matching: "miqubar" naturally covers "miqubar-calendar", "miqubar_sound", etc.
+    if (l_ns.rfind(l_pat + "-", 0) == 0 || l_ns.rfind(l_pat + "_", 0) == 0) {
+        return true;
+    }
+
+    return false;
+}
+
 bool Config::is_layer_blur_enabled(const std::string& ns) const {
     if (ns.empty()) return false;
-    std::string lower_ns = ns;
-    std::transform(lower_ns.begin(), lower_ns.end(), lower_ns.begin(), ::tolower);
 
+    // 1. Check layer rules (respecting precedence: exact -> pattern/sub-namespace -> universal)
+    LayerRule rule = get_layer_rule(ns);
+    if (rule.blur_enabled_specified) {
+        return rule.blur_enabled;
+    }
+
+    // 2. Check m_blurred_layers list with pattern matching
     for (const auto& layer : m_blurred_layers) {
-        std::string lower_layer = layer;
-        std::transform(lower_layer.begin(), lower_layer.end(), lower_layer.begin(), ::tolower);
-        if (lower_layer == lower_ns) {
+        if (matches_layer_pattern(layer, ns)) {
             return true;
         }
     }
@@ -288,13 +382,40 @@ Config::LayerRule Config::get_layer_rule(const std::string& ns) const {
     if (ns.empty()) return LayerRule{};
     std::string lower_ns = ns;
     std::transform(lower_ns.begin(), lower_ns.end(), lower_ns.begin(), ::tolower);
+
+    // Pass 1: Exact match takes highest precedence
     for (const auto& rule : m_layer_rules) {
         std::string lower_pattern = rule.ns_pattern;
         std::transform(lower_pattern.begin(), lower_pattern.end(), lower_pattern.begin(), ::tolower);
-        if (lower_pattern == lower_ns || lower_pattern == "*" || lower_ns.find(lower_pattern) != std::string::npos) {
+        if (lower_pattern == lower_ns) {
             return rule;
         }
     }
+
+    // Pass 2: Specific pattern / wildcard glob match (*, ?, [])
+    for (const auto& rule : m_layer_rules) {
+        if (rule.ns_pattern == "*") continue;
+        if (rule.ns_pattern.find_first_of("*?[]") != std::string::npos &&
+            fnmatch(rule.ns_pattern.c_str(), ns.c_str(), FNM_CASEFOLD) == 0) {
+            return rule;
+        }
+    }
+
+    // Pass 3: Hierarchical sub-namespace match ("miqubar" naturally covers "miqubar-calendar")
+    for (const auto& rule : m_layer_rules) {
+        if (rule.ns_pattern == "*") continue;
+        if (matches_layer_pattern(rule.ns_pattern, ns)) {
+            return rule;
+        }
+    }
+
+    // Pass 4: Universal wildcard fallback ("*")
+    for (const auto& rule : m_layer_rules) {
+        if (rule.ns_pattern == "*") {
+            return rule;
+        }
+    }
+
     return LayerRule{};
 }
 
@@ -327,6 +448,14 @@ void Config::add_layer_rule(const LayerRule& rule) {
                 r.shadow_offset_x = rule.shadow_offset_x;
                 r.shadow_offset_y = rule.shadow_offset_y;
                 r.shadow_offset_specified = true;
+            }
+            if (rule.blur_enabled_specified) {
+                r.blur_enabled = rule.blur_enabled;
+                r.blur_enabled_specified = true;
+            }
+            if (rule.blur_bottom_only_specified) {
+                r.blur_bottom_only = rule.blur_bottom_only;
+                r.blur_bottom_only_specified = true;
             }
             return;
         }
@@ -1040,7 +1169,7 @@ void Config::parse_decoration_entry(const std::string& path_str, const std::stri
             m_shadow_color_inactive = value;
         } else if (key == "offset") {
             std::istringstream iss(value);
-            int ox = 0, oy = 0;
+            double ox = 0.0, oy = 0.0;
             if (iss >> ox >> oy) {
                 m_shadow_offset_x = ox;
                 m_shadow_offset_y = oy;
@@ -1291,7 +1420,20 @@ void Config::parse_layerrule_entry(const std::string& ns, const std::string& pat
 
     if (in_blur) {
         if (key == "enabled") {
-            if (value == "true" || value == "1" || value == "yes") add_blurred_layer(ns);
+            bool en = (value == "true" || value == "1" || value == "yes");
+            LayerRule r;
+            r.ns_pattern = ns;
+            r.blur_enabled = en;
+            r.blur_enabled_specified = true;
+            add_layer_rule(r);
+            if (en) add_blurred_layer(ns);
+        } else if (key == "bottom_only" || key == "wallpaper_only") {
+            bool b_only = (value == "true" || value == "1" || value == "yes");
+            LayerRule r;
+            r.ns_pattern = ns;
+            r.blur_bottom_only = b_only;
+            r.blur_bottom_only_specified = true;
+            add_layer_rule(r);
         }
         return;
     }
@@ -1310,7 +1452,7 @@ void Config::parse_layerrule_entry(const std::string& ns, const std::string& pat
             r.shadow_color = value;
         } else if (key == "offset") {
             std::stringstream ss(value);
-            int ox = 0, oy = 0;
+            double ox = 0.0, oy = 0.0;
             if (ss >> ox >> oy) {
                 r.shadow_offset_x = ox;
                 r.shadow_offset_y = oy;
@@ -1393,7 +1535,20 @@ void Config::parse_layerrule_entry(const std::string& ns, const std::string& pat
 
     // Top-level properties in layerrule
     if (key == "blur") {
-        if (value == "true" || value == "1" || value == "yes") add_blurred_layer(ns);
+        bool en = (value == "true" || value == "1" || value == "yes");
+        LayerRule r;
+        r.ns_pattern = ns;
+        r.blur_enabled = en;
+        r.blur_enabled_specified = true;
+        add_layer_rule(r);
+        if (en) add_blurred_layer(ns);
+    } else if (key == "blur_bottom_only" || key == "blur_wallpaper_only" || key == "wallpaper_only" || key == "bottom_only") {
+        bool b_only = (value == "true" || value == "1" || value == "yes");
+        LayerRule r;
+        r.ns_pattern = ns;
+        r.blur_bottom_only = b_only;
+        r.blur_bottom_only_specified = true;
+        add_layer_rule(r);
     } else if (key == "shadow") {
         LayerRule r;
         r.ns_pattern = ns;
@@ -1408,7 +1563,7 @@ void Config::parse_layerrule_entry(const std::string& ns, const std::string& pat
         LayerRule r; r.ns_pattern = ns; r.shadow_color = value; add_layer_rule(r);
     } else if (key == "shadow_offset") {
         std::stringstream ss(value);
-        int ox = 0, oy = 0;
+        double ox = 0.0, oy = 0.0;
         if (ss >> ox >> oy) {
             LayerRule r; r.ns_pattern = ns; r.shadow_offset_x = ox; r.shadow_offset_y = oy; r.shadow_offset_specified = true; add_layer_rule(r);
         }
@@ -1498,6 +1653,17 @@ void Config::parse_windowrule_entry(const std::string& target, const std::string
     bool in_close = (top_type == "close" || is_in_path(stack, "close"));
     bool in_fade = (top_type == "fade" || is_in_path(stack, "fade"));
     bool in_blur = (top_type == "blur" || is_in_path(stack, "blur"));
+    bool in_shadow = (top_type == "shadow" || is_in_path(stack, "shadow"));
+
+    if (in_shadow) {
+        if (key == "enabled") file_rules.push_back({ "shadow_enabled", target, value });
+        else if (key == "range" || key == "blur_sigma" || key == "sigma") file_rules.push_back({ "shadow_range", target, value });
+        else if (key == "radius" || key == "corner_radius") file_rules.push_back({ "shadow_radius", target, value });
+        else if (key == "color") file_rules.push_back({ "shadow_color", target, value });
+        else if (key == "offset") file_rules.push_back({ "shadow_offset", target, value });
+        has_rules_in_file = true;
+        return;
+    }
 
     if (in_blur) {
         if (key == "enabled") {
@@ -1589,6 +1755,21 @@ void Config::parse_windowrule_entry(const std::string& target, const std::string
         has_rules_in_file = true;
     } else if (key == "immediate" || key == "tearing") {
         file_rules.push_back({ "immediate", target, value });
+        has_rules_in_file = true;
+    } else if (key == "shadow") {
+        file_rules.push_back({ "shadow_enabled", target, value });
+        has_rules_in_file = true;
+    } else if (key == "shadow_range" || key == "shadow_sigma") {
+        file_rules.push_back({ "shadow_range", target, value });
+        has_rules_in_file = true;
+    } else if (key == "shadow_offset") {
+        file_rules.push_back({ "shadow_offset", target, value });
+        has_rules_in_file = true;
+    } else if (key == "shadow_color") {
+        file_rules.push_back({ "shadow_color", target, value });
+        has_rules_in_file = true;
+    } else if (key == "shadow_radius" || key == "shadow_corner_radius") {
+        file_rules.push_back({ "shadow_radius", target, value });
         has_rules_in_file = true;
     }
 }
@@ -1706,9 +1887,17 @@ void Config::load_file(const std::string& path, std::vector<KeyBinding>& file_bi
 }
 
 void Config::load() {
-    ensure_default_files();
-
     std::string path = get_config_file_path();
+    if (!fs::exists(path)) {
+        for (const char* t_dir : {"/usr/share/miquland", "/etc/xdg/miquland", "/etc/miquland", "assets", "/usr/local/share/miquland"}) {
+            std::string cand = std::string(t_dir) + "/miquland.conf";
+            if (fs::exists(cand)) {
+                path = cand;
+                log_info("Running from system default configuration: " + path);
+                break;
+            }
+        }
+    }
     bool has_bindings_in_file = false;
     bool has_gestures_in_file = false;
     bool has_rules_in_file = false;
@@ -1978,6 +2167,11 @@ void Config::save() {
         else if (r.rule == "center") file << "    center = true\n";
         else if (r.rule == "size") file << "    size = " << r.extra << "\n";
         else if (r.rule == "immediate" || r.rule == "tearing") file << "    immediate = true\n";
+        else if (r.rule == "shadow" || r.rule == "shadow_enabled") file << "    shadow = " << (r.extra.empty() ? "true" : r.extra) << "\n";
+        else if (r.rule == "shadow_range") file << "    shadow_range = " << r.extra << "\n";
+        else if (r.rule == "shadow_offset") file << "    shadow_offset = " << r.extra << "\n";
+        else if (r.rule == "shadow_color") file << "    shadow_color = " << r.extra << "\n";
+        else if (r.rule == "shadow_radius") file << "    shadow_radius = " << r.extra << "\n";
         file << "}\n\n";
     }
 

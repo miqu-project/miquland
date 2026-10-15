@@ -249,9 +249,9 @@ public:
     const std::string& get_shadow_color_inactive() const { return m_shadow_color_inactive; }
     void set_shadow_color_inactive(const std::string& color) { m_shadow_color_inactive = color; }
 
-    int get_shadow_offset_x() const { return m_shadow_offset_x; }
-    int get_shadow_offset_y() const { return m_shadow_offset_y; }
-    void set_shadow_offset(int x, int y) { m_shadow_offset_x = x; m_shadow_offset_y = y; }
+    double get_shadow_offset_x() const { return m_shadow_offset_x; }
+    double get_shadow_offset_y() const { return m_shadow_offset_y; }
+    void set_shadow_offset(double x, double y) { m_shadow_offset_x = x; m_shadow_offset_y = y; }
 
     enum class LayoutMode {
         Spiral, // Recursive binary space partitioning (Fibonacci / BSP)
@@ -338,9 +338,15 @@ public:
         float shadow_blur_sigma = -1.0f;
         int shadow_corner_radius = -1;
         std::string shadow_color = "";
-        int shadow_offset_x = 0;
-        int shadow_offset_y = 0;
+        double shadow_offset_x = 0.0;
+        double shadow_offset_y = 0.0;
         bool shadow_offset_specified = false;
+
+        // Blur configuration
+        bool blur_enabled = false;
+        bool blur_enabled_specified = false;
+        bool blur_bottom_only = false;
+        bool blur_bottom_only_specified = false;
     };
 
     bool is_layer_animations_enabled() const { return m_layer_animations_enabled; }
@@ -458,6 +464,11 @@ public:
     bool should_tear(const std::string& app_id, const std::string& title) const;
     int get_target_workspace(const std::string& app_id, const std::string& title) const;
     float get_rule_opacity(const std::string& app_id, const std::string& title, float default_val) const;
+    bool is_window_shadow_enabled(const std::string& app_id, const std::string& title, bool default_val) const;
+    float get_window_shadow_blur_sigma(const std::string& app_id, const std::string& title, float default_val) const;
+    bool get_window_shadow_offset(const std::string& app_id, const std::string& title, double& out_ox, double& out_oy) const;
+    std::string get_window_shadow_color(const std::string& app_id, const std::string& title, const std::string& default_col) const;
+    int get_window_shadow_corner_radius(const std::string& app_id, const std::string& title, int default_val) const;
 
     const std::vector<MonitorRule>& get_monitor_rules() const { return m_monitor_rules; }
     void add_monitor_rule(const MonitorRule& rule) { m_monitor_rules.push_back(rule); }
@@ -473,6 +484,8 @@ public:
     static bool parse_binding_combo(const std::string& combo, uint32_t& out_modifiers, xkb_keysym_t& out_keysym);
     void add_or_update_binding(uint32_t mods, xkb_keysym_t sym, const std::string& action, const std::string& combo);
 
+    void ensure_default_files();
+
     struct SectionFrame {
         std::string type;
         std::string param;
@@ -481,7 +494,6 @@ public:
 private:
     Config();
     void set_defaults();
-    void ensure_default_files();
     void load_file(const std::string& path, std::vector<KeyBinding>& file_bindings, bool& has_bindings_in_file,
                    std::vector<GestureBinding>& file_gestures, bool& has_gestures_in_file,
                    std::vector<WindowRule>& file_rules, bool& has_rules_in_file,
@@ -615,8 +627,8 @@ private:
     float m_shadow_blur_sigma = 12.0f;
     std::string m_shadow_color_active = "#00000066";
     std::string m_shadow_color_inactive = "#00000044";
-    int m_shadow_offset_x = 0;
-    int m_shadow_offset_y = 4;
+    double m_shadow_offset_x = 0.0;
+    double m_shadow_offset_y = 4.0;
 
     std::vector<KeyBinding> m_keybindings;
     std::vector<GestureBinding> m_gesture_bindings;

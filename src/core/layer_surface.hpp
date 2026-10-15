@@ -46,7 +46,7 @@ private:
     static void handle_surface_commit(struct wl_listener* listener, void* data);
     static void handle_new_popup(struct wl_listener* listener, void* data);
 
-    void sync_shadow_geometry(int w, int h, int r, float sigma, int ox, int oy);
+    void sync_shadow_geometry(int w, int h, int r, float sigma, double ox, double oy);
 
     Server* m_server = nullptr;
     struct wlr_layer_surface_v1* m_wlr_layer_surface = nullptr;

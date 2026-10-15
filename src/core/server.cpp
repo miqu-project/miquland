@@ -163,6 +163,10 @@ bool Server::init() {
     m_popup_tree = wlr_scene_tree_create(&m_scene->tree);
     m_session_lock_tree = wlr_scene_tree_create(&m_scene->tree);
 
+    // Optimized blur node: sits on m_layer_bottom_tree to sample the background/wallpaper
+    // before workspaces and top layer surfaces are rendered
+    m_optimized_blur = wlr_scene_optimized_blur_create(m_layer_bottom_tree, 1920, 1080);
+
     m_session_lock_manager = wlr_session_lock_manager_v1_create(m_wl_display);
     if (m_session_lock_manager) {
         m_session_lock_new_lock_listener.notify = handle_new_session_lock;
@@ -671,6 +675,7 @@ void Server::arrange_layers(struct wlr_output* output) {
         if (primary) primary_output = primary->get_wlr_output();
     }
 
+    // Pass 1: Configure surfaces that have a positive exclusive zone to carve out usable_area
     for (auto layer : layers_order) {
         for (auto& l_surf : m_layer_surfaces) {
             if (!l_surf || !l_surf->get_wlr_layer_surface()) continue;
@@ -678,7 +683,28 @@ void Server::arrange_layers(struct wlr_output* output) {
             if (!surf_out) {
                 surf_out = primary_output;
             }
-            if (l_surf->get_layer() == layer && surf_out == output) {
+            if (l_surf->get_layer() == layer && surf_out == output &&
+                l_surf->get_wlr_layer_surface()->current.exclusive_zone > 0) {
+                if (layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
+                    struct wlr_box bg_usable = full_area;
+                    l_surf->configure(&full_area, &bg_usable);
+                } else {
+                    l_surf->configure(&full_area, &usable_area);
+                }
+            }
+        }
+    }
+
+    // Pass 2: Configure non-exclusive surfaces within the remaining usable_area
+    for (auto layer : layers_order) {
+        for (auto& l_surf : m_layer_surfaces) {
+            if (!l_surf || !l_surf->get_wlr_layer_surface()) continue;
+            struct wlr_output* surf_out = l_surf->get_wlr_layer_surface()->output;
+            if (!surf_out) {
+                surf_out = primary_output;
+            }
+            if (l_surf->get_layer() == layer && surf_out == output &&
+                l_surf->get_wlr_layer_surface()->current.exclusive_zone <= 0) {
                 if (layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
                     struct wlr_box bg_usable = full_area;
                     l_surf->configure(&full_area, &bg_usable);
@@ -945,6 +971,18 @@ void Server::handle_cursor_shape_request_set_shape(struct wl_listener* listener,
     if (focused_client == event->seat_client) {
         const char* name = wlr_cursor_shape_v1_name(event->shape);
         server->m_input_manager->set_cursor_icon(name);
+    }
+}
+
+void Server::mark_optimized_blur_dirty() {
+    if (m_optimized_blur) {
+        wlr_scene_optimized_blur_mark_dirty(m_optimized_blur);
+    }
+}
+
+void Server::update_optimized_blur_geometry(int width, int height) {
+    if (m_optimized_blur && width > 0 && height > 0) {
+        wlr_scene_optimized_blur_set_size(m_optimized_blur, width, height);
     }
 }
 

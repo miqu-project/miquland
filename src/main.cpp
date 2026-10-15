@@ -16,9 +16,10 @@ static void print_usage(const char* prog) {
     std::cout << "Usage: " << prog << " [options]\n\n"
               << "Options:\n"
               << "  -s, --startup <cmd>    Execute startup command after compositor initializes\n"
+              << "  --init-config          Generate default user configuration file\n"
               << "  -h, --help             Show this help message\n\n"
               << "Configuration File:\n"
-              << "  ~/.config/miquland/miquland.conf\n\n"
+              << "  ~/.config/miquland/miquland.conf (optional overlay)\n\n"
               << "Keybindings:\n"
               << "  Super + Space          Spawn application menu launcher\n"
               << "  Super + T              Spawn terminal\n"
@@ -32,18 +33,22 @@ static void print_usage(const char* prog) {
 int main(int argc, char* argv[]) {
     std::string startup_cmd;
 
-    // Load configuration file
-    miquland::Config::get().load();
-
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-h" || arg == "--help") {
             print_usage(argv[0]);
             return 0;
+        } else if (arg == "--init-config") {
+            miquland::Config::get().ensure_default_files();
+            std::cout << "[miquland] Configuration initialized at: " << miquland::Config::get().get_config_file_path() << "\n";
+            return 0;
         } else if ((arg == "-s" || arg == "--startup") && i + 1 < argc) {
             startup_cmd = argv[++i];
         }
     }
+
+    // Load configuration file (loads user config if present, falls back to system defaults)
+    miquland::Config::get().load();
 
     miquland::Server server;
     g_server = &server;

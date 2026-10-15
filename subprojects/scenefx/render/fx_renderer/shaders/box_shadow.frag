@@ -70,10 +70,17 @@ float corner_alpha(vec2 size, vec2 position, bool is_cutout,
         float radius_tl, float radius_tr, float radius_bl, float radius_br);
 
 void main() {
+    vec2 pad = (clip_size.x > 0.0 && clip_size.y > 0.0)
+            ? (size - clip_size) * 0.5
+            : vec2(max(1.0, blur_sigma * 2.0));
+    vec2 lower = position + pad;
+    vec2 upper = lower + ((clip_size.x > 0.0 && clip_size.y > 0.0) ? clip_size : (size - 2.0 * pad));
+    float eff_sigma = max(0.01, blur_sigma * 0.5);
+
     float shadow_alpha = v_color.a * roundedBoxShadow(
-            position + blur_sigma,
-            position + size - blur_sigma,
-            gl_FragCoord.xy, blur_sigma * 0.5,
+            lower,
+            upper,
+            gl_FragCoord.xy, eff_sigma,
             corner_radius);
 
     // Clipping

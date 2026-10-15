@@ -98,8 +98,8 @@ struct ClosingLayerAnimation {
     struct wlr_scene_shadow* shadow_node = nullptr;
     float shadow_sigma = 0.0f;
     int shadow_radius = 0;
-    int shadow_ox = 0;
-    int shadow_oy = 0;
+    double shadow_ox = 0.0;
+    double shadow_oy = 0.0;
     float shadow_color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     int base_geo_x = 0;
     int base_geo_y = 0;
