@@ -345,8 +345,6 @@ public:
         // Blur configuration
         bool blur_enabled = false;
         bool blur_enabled_specified = false;
-        bool blur_bottom_only = false;
-        bool blur_bottom_only_specified = false;
     };
 
     bool is_layer_animations_enabled() const { return m_layer_animations_enabled; }

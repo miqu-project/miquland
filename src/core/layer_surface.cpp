@@ -137,9 +137,6 @@ void LayerSurface::update_blur() {
         wlr_scene_blur_set_size(m_blur_node, w, h);
         wlr_scene_node_set_enabled(&m_blur_node->node, true);
 
-        Config::LayerRule rule = Config::get().get_layer_rule(ns);
-        wlr_scene_blur_set_should_only_blur_bottom_layer(m_blur_node, rule.blur_bottom_only);
-
         // Find the scene buffer for this layer surface and hook transparency mask
         struct wlr_scene_buffer* surf_buf = nullptr;
         wlr_scene_node_for_each_buffer(&m_scene_layer_surface->tree->node,
@@ -481,10 +478,6 @@ void LayerSurface::handle_surface_commit(struct wl_listener* listener, void* dat
     surface->update_tree();
     surface->update_blur();
     surface->update_shadow();
-
-    if (surface->m_current_layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND && surface->m_server) {
-        surface->m_server->mark_optimized_blur_dirty();
-    }
 
     uint32_t committed = wlr_surface->current.committed;
     if (committed & (WLR_LAYER_SURFACE_V1_STATE_LAYER |

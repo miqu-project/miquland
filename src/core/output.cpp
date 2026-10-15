@@ -109,14 +109,6 @@ void Output::apply_config() {
 
     if (m_server) {
         m_server->arrange_layers(m_wlr_output);
-        if (layout) {
-            struct wlr_box box = { 0, 0, 0, 0 };
-            wlr_output_layout_get_box(layout, nullptr, &box);
-            if (box.width > 0 && box.height > 0) {
-                m_server->update_optimized_blur_geometry(box.width, box.height);
-                m_server->mark_optimized_blur_dirty();
-            }
-        }
     }
 }
 
@@ -379,14 +371,6 @@ bool OutputManager::apply_config(struct wlr_output_configuration_v1* config, boo
     wlr_output_configuration_v1_destroy(config);
 
     update_manager_config();
-    if (m_output_layout && m_server) {
-        struct wlr_box box = { 0, 0, 0, 0 };
-        wlr_output_layout_get_box(m_output_layout, nullptr, &box);
-        if (box.width > 0 && box.height > 0) {
-            m_server->update_optimized_blur_geometry(box.width, box.height);
-            m_server->mark_optimized_blur_dirty();
-        }
-    }
     if (m_server->get_workspace_manager()) {
         m_server->get_workspace_manager()->recalculate_layout();
     }

@@ -163,10 +163,6 @@ bool Server::init() {
     m_popup_tree = wlr_scene_tree_create(&m_scene->tree);
     m_session_lock_tree = wlr_scene_tree_create(&m_scene->tree);
 
-    // Optimized blur node: sits on m_layer_bottom_tree to sample the background/wallpaper
-    // before workspaces and top layer surfaces are rendered
-    m_optimized_blur = wlr_scene_optimized_blur_create(m_layer_bottom_tree, 1920, 1080);
-
     m_session_lock_manager = wlr_session_lock_manager_v1_create(m_wl_display);
     if (m_session_lock_manager) {
         m_session_lock_new_lock_listener.notify = handle_new_session_lock;
@@ -971,18 +967,6 @@ void Server::handle_cursor_shape_request_set_shape(struct wl_listener* listener,
     if (focused_client == event->seat_client) {
         const char* name = wlr_cursor_shape_v1_name(event->shape);
         server->m_input_manager->set_cursor_icon(name);
-    }
-}
-
-void Server::mark_optimized_blur_dirty() {
-    if (m_optimized_blur) {
-        wlr_scene_optimized_blur_mark_dirty(m_optimized_blur);
-    }
-}
-
-void Server::update_optimized_blur_geometry(int width, int height) {
-    if (m_optimized_blur && width > 0 && height > 0) {
-        wlr_scene_optimized_blur_set_size(m_optimized_blur, width, height);
     }
 }
 
