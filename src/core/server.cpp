@@ -637,6 +637,7 @@ void Server::focus_layer_surface(LayerSurface* surface) {
             wlr_seat_keyboard_notify_enter(seat, wlr_surf, kb->keycodes, kb->num_keycodes, &kb->modifiers);
         }
     } else {
+        if (!m_focused_layer_surface) return;
         m_focused_layer_surface = nullptr;
         Workspace* active_ws = m_workspace_manager ? m_workspace_manager->get_active_workspace() : nullptr;
         if (m_focused_view && m_focused_view->is_mapped() && m_focused_view->get_workspace() == active_ws) {

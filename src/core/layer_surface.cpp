@@ -526,4 +526,16 @@ void LayerSurface::handle_new_popup(struct wl_listener* listener, void* data) {
     surface->m_popups.push_back(std::move(p));
 }
 
+bool LayerSurface::contains_surface(struct wlr_surface* target) const {
+    if (!target || !m_wlr_layer_surface) return false;
+    if (m_wlr_layer_surface->surface == target) return true;
+    for (const auto& popup : m_popups) {
+        if (popup && popup->get_wlr_popup() && popup->get_wlr_popup()->base &&
+            popup->get_wlr_popup()->base->surface == target) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace miquland

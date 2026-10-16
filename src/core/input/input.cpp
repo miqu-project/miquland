@@ -2,6 +2,7 @@
 #include "core/server.hpp"
 #include "core/workspace.hpp"
 #include "core/view.hpp"
+#include "core/layer_surface.hpp"
 #include "core/output.hpp"
 #include "core/session_lock.hpp"
 #include "core/plugin_manager.hpp"
@@ -1025,6 +1026,24 @@ void InputManager::handle_cursor_button(struct wl_listener* listener, void* data
     }
 
     if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
+        // Dismiss transient layer overlays on outside click
+        std::vector<struct wlr_layer_surface_v1*> overlays_to_close;
+        for (const auto& l_surf : manager->m_server->get_layer_surfaces()) {
+            if (!l_surf || !l_surf->get_wlr_layer_surface()) continue;
+            auto* wlr_ls = l_surf->get_wlr_layer_surface();
+            if (wlr_ls->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY &&
+                wlr_ls->current.exclusive_zone <= 0 &&
+                wlr_ls->current.keyboard_interactive != ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE &&
+                wlr_ls->surface && wlr_ls->surface->mapped) {
+                if (!l_surf->contains_surface(surface)) {
+                    overlays_to_close.push_back(wlr_ls);
+                }
+            }
+        }
+        for (auto* ls : overlays_to_close) {
+            wlr_layer_surface_v1_destroy(ls);
+        }
+
         // Direct border drag-resize without holding Super
         if (event->button == BTN_LEFT && manager->m_border_hover_view && manager->m_border_hover_edges != 0) {
             manager->begin_interactive(manager->m_border_hover_view, CursorMode::Resize, manager->m_border_hover_edges);

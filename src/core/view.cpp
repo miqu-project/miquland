@@ -1391,6 +1391,7 @@ void View::focus() {
         if (wlr_layer && wlr_layer->current.keyboard_interactive == ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE) {
             return;
         }
+        m_server->set_focused_layer_surface(nullptr);
     }
 
     if (m_workspace && m_server->get_workspace_manager()) {

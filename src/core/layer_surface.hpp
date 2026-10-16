@@ -38,6 +38,7 @@ public:
     Config::LayerAnimStyle deduce_animation_style(bool is_close = false) const;
     void apply_animation_transform(int offset_x, int offset_y, double scale_x, double scale_y, float opacity, bool center_anchor = true);
     void reset_animation_transform();
+    bool contains_surface(struct wlr_surface* target) const;
 
 private:
     static void handle_map(struct wl_listener* listener, void* data);

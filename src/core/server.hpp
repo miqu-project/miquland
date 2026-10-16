@@ -65,6 +65,7 @@ public:
     void arrange_layers(struct wlr_output* output);
 
     void focus_layer_surface(LayerSurface* surface);
+    void set_focused_layer_surface(LayerSurface* surface) { m_focused_layer_surface = surface; }
     LayerSurface* get_focused_layer_surface() const { return m_focused_layer_surface; }
     const std::vector<std::unique_ptr<LayerSurface>>& get_layer_surfaces() const { return m_layer_surfaces; }
     struct wlr_foreign_toplevel_manager_v1* get_foreign_toplevel_manager() const { return m_foreign_toplevel_manager; }
