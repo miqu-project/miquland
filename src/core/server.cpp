@@ -163,6 +163,10 @@ bool Server::init() {
     m_popup_tree = wlr_scene_tree_create(&m_scene->tree);
     m_session_lock_tree = wlr_scene_tree_create(&m_scene->tree);
 
+    // Optimized blur node: sits on m_layer_bottom_tree to sample the background/wallpaper
+    // before workspaces and top layer surfaces are rendered
+    m_optimized_blur = wlr_scene_optimized_blur_create(m_layer_bottom_tree, 1920, 1080);
+
     m_session_lock_manager = wlr_session_lock_manager_v1_create(m_wl_display);
     if (m_session_lock_manager) {
         m_session_lock_new_lock_listener.notify = handle_new_session_lock;
@@ -594,12 +598,19 @@ void Server::remove_layer_surface(LayerSurface* surface) {
         focus_layer_surface(nullptr);
     }
 
+    struct wlr_output* out = nullptr;
+    if (surface && surface->get_wlr_layer_surface()) {
+        out = surface->get_wlr_layer_surface()->output;
+    }
+
     for (auto it = m_layer_surfaces.begin(); it != m_layer_surfaces.end(); ++it) {
         if (it->get() == surface) {
             m_layer_surfaces.erase(it);
             break;
         }
     }
+
+    arrange_layers(out);
 }
 
 void Server::focus_layer_surface(LayerSurface* surface) {
@@ -645,7 +656,16 @@ void Server::focus_layer_surface(LayerSurface* surface) {
 }
 
 void Server::arrange_layers(struct wlr_output* output) {
-    if (!output) return;
+    if (!output) {
+        if (m_output_manager) {
+            for (const auto& out : m_output_manager->get_outputs()) {
+                if (out && out->get_wlr_output()) {
+                    arrange_layers(out->get_wlr_output());
+                }
+            }
+        }
+        return;
+    }
 
     int eff_w = 0, eff_h = 0;
     wlr_output_effective_resolution(output, &eff_w, &eff_h);
@@ -967,6 +987,18 @@ void Server::handle_cursor_shape_request_set_shape(struct wl_listener* listener,
     if (focused_client == event->seat_client) {
         const char* name = wlr_cursor_shape_v1_name(event->shape);
         server->m_input_manager->set_cursor_icon(name);
+    }
+}
+
+void Server::mark_optimized_blur_dirty() {
+    if (m_optimized_blur) {
+        wlr_scene_optimized_blur_mark_dirty(m_optimized_blur);
+    }
+}
+
+void Server::update_optimized_blur_geometry(int width, int height) {
+    if (m_optimized_blur && width > 0 && height > 0) {
+        wlr_scene_optimized_blur_set_size(m_optimized_blur, width, height);
     }
 }
 

@@ -563,6 +563,10 @@ void Config::add_layer_rule(const LayerRule& rule) {
                 r.blur_enabled = rule.blur_enabled;
                 r.blur_enabled_specified = true;
             }
+            if (rule.blur_bottom_only_specified) {
+                r.blur_bottom_only = rule.blur_bottom_only;
+                r.blur_bottom_only_specified = true;
+            }
             return;
         }
     }
@@ -1533,6 +1537,13 @@ void Config::parse_layerrule_entry(const std::string& ns, const std::string& pat
             r.blur_enabled_specified = true;
             add_layer_rule(r);
             if (en) add_blurred_layer(ns);
+        } else if (key == "bottom_only" || key == "wallpaper_only") {
+            bool b_only = (value == "true" || value == "1" || value == "yes");
+            LayerRule r;
+            r.ns_pattern = ns;
+            r.blur_bottom_only = b_only;
+            r.blur_bottom_only_specified = true;
+            add_layer_rule(r);
         }
         return;
     }
@@ -1641,6 +1652,13 @@ void Config::parse_layerrule_entry(const std::string& ns, const std::string& pat
         r.blur_enabled_specified = true;
         add_layer_rule(r);
         if (en) add_blurred_layer(ns);
+    } else if (key == "blur_bottom_only" || key == "blur_wallpaper_only" || key == "wallpaper_only" || key == "bottom_only") {
+        bool b_only = (value == "true" || value == "1" || value == "yes");
+        LayerRule r;
+        r.ns_pattern = ns;
+        r.blur_bottom_only = b_only;
+        r.blur_bottom_only_specified = true;
+        add_layer_rule(r);
     } else if (key == "shadow") {
         LayerRule r;
         r.ns_pattern = ns;

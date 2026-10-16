@@ -41,6 +41,9 @@ public:
     struct wlr_scene_tree* get_layer_bottom_tree() const { return m_layer_bottom_tree; }
     struct wlr_scene_tree* get_layer_top_tree() const { return m_layer_top_tree; }
     struct wlr_scene_tree* get_layer_overlay_tree() const { return m_layer_overlay_tree; }
+    struct wlr_scene_optimized_blur* get_optimized_blur() const { return m_optimized_blur; }
+    void mark_optimized_blur_dirty();
+    void update_optimized_blur_geometry(int width, int height);
 
     OutputManager* get_output_manager() const { return m_output_manager.get(); }
     WorkspaceManager* get_workspace_manager() const { return m_workspace_manager.get(); }
@@ -119,6 +122,7 @@ private:
     struct wlr_scene_tree* m_popup_tree = nullptr;
     struct wlr_scene_tree* m_layer_overlay_tree = nullptr;
     struct wlr_scene_tree* m_session_lock_tree = nullptr;
+    struct wlr_scene_optimized_blur* m_optimized_blur = nullptr;
 
     struct wlr_xdg_output_manager_v1* m_xdg_output_manager = nullptr;
     struct wlr_xdg_shell* m_xdg_shell = nullptr;

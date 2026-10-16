@@ -838,6 +838,9 @@ void AnimationManager::schedule_layer_unmap_close(LayerSurface* surface) {
         blur = wlr_scene_blur_create(closing_tree, base_w, base_h);
         if (blur) {
             wlr_scene_blur_set_transparency_mask_source(blur, scene_buf);
+            if (rule.blur_bottom_only) {
+                wlr_scene_blur_set_should_only_blur_bottom_layer(blur, true);
+            }
         }
     }
     struct wlr_scene_shadow* shadow = nullptr;
