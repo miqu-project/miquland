@@ -1040,8 +1040,12 @@ void InputManager::handle_cursor_button(struct wl_listener* listener, void* data
                 }
             }
         }
-        for (auto* ls : overlays_to_close) {
-            wlr_layer_surface_v1_destroy(ls);
+        if (!overlays_to_close.empty()) {
+            for (auto* ls : overlays_to_close) {
+                wlr_layer_surface_v1_destroy(ls);
+            }
+            // Dismissal consumed the click; return early so the dismissal click does not trigger underlying buttons
+            return;
         }
 
         // Direct border drag-resize without holding Super
