@@ -39,8 +39,7 @@ int main(int argc, char* argv[]) {
             print_usage(argv[0]);
             return 0;
         } else if (arg == "--init-config") {
-            miquland::Config::get().ensure_default_files();
-            std::cout << "[miquland] Configuration initialized at: " << miquland::Config::get().get_config_file_path() << "\n";
+            miquland::Config::get().init_user_config();
             return 0;
         } else if ((arg == "-s" || arg == "--startup") && i + 1 < argc) {
             startup_cmd = argv[++i];

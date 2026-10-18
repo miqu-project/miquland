@@ -6,7 +6,9 @@
 #include <filesystem>
 #include <cstdlib>
 #include <algorithm>
-#include <cctype>
+#include <chrono>
+#include <ctime>
+#include <iostream>
 #include <fnmatch.h>
 
 namespace miquland {
@@ -890,31 +892,54 @@ std::string Config::resolve_path(const std::string& path) const {
     return p;
 }
 
-void Config::ensure_default_files() {
+std::string Config::init_user_config() {
     std::string dir = get_config_dir_path();
     std::error_code ec;
     
     // Create ~/.config/miquland/ if not present
     fs::create_directories(dir, ec);
 
-    // Copy system default miquland.conf if user copy does not exist
     std::string config_path = get_config_file_path();
-    if (!fs::exists(config_path)) {
-        bool copied = false;
-        for (const char* t_dir : {"/usr/share/miquland", "/etc/xdg/miquland", "/etc/miquland", "assets", "/usr/local/share/miquland"}) {
-            std::string cand = std::string(t_dir) + "/miquland.conf";
-            if (fs::exists(cand)) {
-                fs::copy_file(cand, config_path, fs::copy_options::overwrite_existing, ec);
-                if (!ec) {
-                    copied = true;
-                    log_info("Installed default configuration to " + config_path + " from " + cand);
-                    break;
-                }
+
+    // Safe Archiving: If configuration already exists, archive to .bak.<YYYYMMDD-HHMMSS>
+    if (fs::exists(config_path)) {
+        auto now = std::chrono::system_clock::now();
+        std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+        std::tm tm_buf{};
+        localtime_r(&now_time, &tm_buf);
+        char ts[32];
+        std::strftime(ts, sizeof(ts), "%Y%m%d-%H%M%S", &tm_buf);
+
+        std::string bak_path = config_path + ".bak." + ts;
+        fs::rename(config_path, bak_path, ec);
+        if (!ec) {
+            std::cout << "[miquland] Backed up existing configuration to: " << bak_path << "\n";
+            log_info("Backed up existing configuration to: " + bak_path);
+        }
+    }
+
+    // Copy system default miquland.conf template
+    bool copied = false;
+    for (const char* t_dir : {"/usr/share/miquland", "assets", "/etc/xdg/miquland", "/etc/miquland", "/usr/local/share/miquland"}) {
+        std::string cand = std::string(t_dir) + "/miquland.conf";
+        if (fs::exists(cand)) {
+            fs::copy_file(cand, config_path, fs::copy_options::overwrite_existing, ec);
+            if (!ec) {
+                copied = true;
+                std::cout << "[miquland] Initialized default configuration: copied " << cand << " to " << config_path << "\n";
+                log_info("Installed default configuration to " + config_path + " from " + cand);
+                break;
             }
         }
-        // Absolute last resort if system assets are missing
-        if (!copied) save(); 
     }
+    // Absolute last resort if system assets are missing
+    if (!copied) save();
+
+    return config_path;
+}
+
+void Config::ensure_default_files() {
+    init_user_config();
 }
 
 static std::string resolve_exec_command(const std::string& raw_cmd) {

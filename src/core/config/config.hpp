@@ -487,6 +487,7 @@ public:
     static bool parse_binding_combo(const std::string& combo, uint32_t& out_modifiers, xkb_keysym_t& out_keysym);
     void add_or_update_binding(uint32_t mods, xkb_keysym_t sym, const std::string& action, const std::string& combo);
 
+    std::string init_user_config();
     void ensure_default_files();
 
     struct SectionFrame {
