@@ -87,5 +87,27 @@ Installs the binary to `/usr/bin/miquland` and the system default configuration 
 
 ---
 
+## 🙏 Acknowledgements & Inspirations
+
+`miquland` and the Miqu Desktop Ecosystem stand on the shoulders of giants across the open-source community. Sincere gratitude and credits go to:
+
+* **[wlroots](https://gitlab.freedesktop.org/wlroots/wlroots)** — For the modular, rock-solid Wayland compositor library and foundation.
+* **[tinywl](https://gitlab.freedesktop.org/wlroots/wlroots/-/tree/master/tinywl)** — The minimal wlroots reference compositor that serves as the genesis for bootstrapping and learning Wayland development.
+* **[dwl](https://codeberg.org/dwl/dwl)** — For showing how concise and elegant a tiling Wayland compositor can be.
+* **[Hyprland](https://github.com/hyprwm/Hyprland)** — For shaping the perspective on how a modern tiling window manager should feel as a daily driver, inspiring the fluid motion, animations, blur, and visual aesthetics.
+* **[Sway](https://github.com/swaywm/sway)** — For the configuration architecture paradigms, single-file authority ideas, and reliable layer-shell contracts.
+* **[SceneFX](https://github.com/wlrfx/scenefx)** — For providing hardware-accelerated scene-graph rendering with corner rounding, drop shadows, and dual-pass blur effects.
+* **[GNOME](https://www.gnome.org/)** — For inspiring the intuitive, full-screen workspace overview and multitasking flow (`miquoverview`).
+* **Windows** — For the familiar, ergonomic bottom taskbar design and desktop accessibility (`miqubar`).
+* **[Rofi](https://github.com/davatorium/rofi)** — For inspiring the keyboard-driven application launcher and switcher (`miqulauncher`).
+* **[UFW](https://launchpad.net/ufw)** — For serving as the reliable security and packet filtering backend for the firewall center (`miqusecure`).
+* **[MPD](https://www.musicpd.org/)** — For providing the robust, lightweight audio engine backend (`miqumusic`).
+
+### Special Thanks
+* **[Antigravity IDE](https://deepmind.google/technologies/) by Google** — For pair programming, architectural reasoning, and AI coding assistance throughout the development of the Miqu ecosystem.
+
+---
+
 ## 📄 License
 Licensed under the GNU General Public License v3.0.
+
