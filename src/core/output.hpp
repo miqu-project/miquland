@@ -53,7 +53,7 @@ public:
     Output* find_output(struct wlr_output* wlr_out) const;
     const std::vector<std::unique_ptr<Output>>& get_outputs() const { return m_outputs; }
 
-    void add_output(Output* output);
+    void add_output(std::unique_ptr<Output> output);
     void remove_output(Output* output);
 
     void apply_all_configs();

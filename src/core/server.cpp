@@ -38,6 +38,10 @@ Server::Server() {
 Server::~Server() {
     if (m_config_reload_timer) wl_event_source_remove(m_config_reload_timer);
     if (m_config_event_source) wl_event_source_remove(m_config_event_source);
+    for (int wd : m_inotify_sourced_wds) {
+        if (wd >= 0 && m_inotify_fd >= 0) inotify_rm_watch(m_inotify_fd, wd);
+    }
+    m_inotify_sourced_wds.clear();
     if (m_inotify_file_wd >= 0 && m_inotify_fd >= 0) inotify_rm_watch(m_inotify_fd, m_inotify_file_wd);
     if (m_inotify_wd >= 0 && m_inotify_fd >= 0) inotify_rm_watch(m_inotify_fd, m_inotify_wd);
     if (m_inotify_fd >= 0) ::close(m_inotify_fd);
@@ -308,8 +312,28 @@ void Server::setup_config_watcher() {
     std::string config_file = Config::get_config_file_path();
     m_inotify_file_wd = inotify_add_watch(m_inotify_fd, config_file.c_str(), IN_MODIFY | IN_CLOSE_WRITE);
 
+    update_sourced_file_watches();
+
     m_config_event_source = wl_event_loop_add_fd(m_wl_event_loop, m_inotify_fd, WL_EVENT_READABLE, handle_config_inotify, this);
     m_config_reload_timer = wl_event_loop_add_timer(m_wl_event_loop, handle_config_reload_timer, this);
+}
+
+void Server::update_sourced_file_watches() {
+    if (m_inotify_fd < 0) return;
+
+    for (int wd : m_inotify_sourced_wds) {
+        if (wd >= 0) {
+            inotify_rm_watch(m_inotify_fd, wd);
+        }
+    }
+    m_inotify_sourced_wds.clear();
+
+    for (const auto& file : Config::get().get_loaded_files()) {
+        int wd = inotify_add_watch(m_inotify_fd, file.c_str(), IN_MODIFY | IN_CLOSE_WRITE);
+        if (wd >= 0) {
+            m_inotify_sourced_wds.push_back(wd);
+        }
+    }
 }
 
 int Server::handle_config_inotify(int fd, uint32_t mask, void* data) {
@@ -322,7 +346,16 @@ int Server::handle_config_inotify(int fd, uint32_t mask, void* data) {
         const struct inotify_event* event;
         for (char* ptr = buf; ptr < buf + len; ptr += sizeof(struct inotify_event) + event->len) {
             event = reinterpret_cast<const struct inotify_event*>(ptr);
-            if (server->m_inotify_file_wd >= 0 && event->wd == server->m_inotify_file_wd) {
+            bool is_sourced = false;
+            for (int swd : server->m_inotify_sourced_wds) {
+                if (event->wd == swd) {
+                    is_sourced = true;
+                    break;
+                }
+            }
+            if (is_sourced) {
+                should_reload = true;
+            } else if (server->m_inotify_file_wd >= 0 && event->wd == server->m_inotify_file_wd) {
                 should_reload = true;
                 if (event->mask & (IN_IGNORED | IN_DELETE_SELF | IN_MOVE_SELF)) {
                     server->m_inotify_file_wd = -1;
@@ -363,6 +396,7 @@ int Server::handle_config_reload_timer(void* data) {
 
 void Server::reload_config() {
     Config::get().load();
+    update_sourced_file_watches();
 
     if (m_output_manager) {
         m_output_manager->reapply_all_configs();
@@ -892,6 +926,7 @@ struct DecorationWrapper {
     struct wlr_xdg_toplevel_decoration_v1* decoration = nullptr;
     struct wl_listener request_mode;
     struct wl_listener surface_commit;
+    struct wl_listener surface_destroy;
     struct wl_listener destroy;
 
     static void handle_request_mode(struct wl_listener* listener, void* data) {
@@ -917,10 +952,19 @@ struct DecorationWrapper {
         }
     }
 
+    static void handle_surface_destroy(struct wl_listener* listener, void* data) {
+        DecorationWrapper* wrapper = wl_container_of(listener, wrapper, surface_destroy);
+        wl_list_remove(&wrapper->surface_commit.link);
+        wl_list_init(&wrapper->surface_commit.link);
+        wl_list_remove(&wrapper->surface_destroy.link);
+        wl_list_init(&wrapper->surface_destroy.link);
+    }
+
     static void handle_destroy(struct wl_listener* listener, void* data) {
         DecorationWrapper* wrapper = wl_container_of(listener, wrapper, destroy);
         wl_list_remove(&wrapper->request_mode.link);
         wl_list_remove(&wrapper->surface_commit.link);
+        wl_list_remove(&wrapper->surface_destroy.link);
         wl_list_remove(&wrapper->destroy.link);
         delete wrapper;
     }
@@ -937,10 +981,13 @@ void Server::handle_new_xdg_decoration(struct wl_listener* listener, void* data)
     wl_signal_add(&decoration->events.request_mode, &wrapper->request_mode);
 
     wrapper->surface_commit.notify = DecorationWrapper::handle_commit;
+    wrapper->surface_destroy.notify = DecorationWrapper::handle_surface_destroy;
     if (decoration->toplevel && decoration->toplevel->base && decoration->toplevel->base->surface) {
         wl_signal_add(&decoration->toplevel->base->surface->events.commit, &wrapper->surface_commit);
+        wl_signal_add(&decoration->toplevel->base->surface->events.destroy, &wrapper->surface_destroy);
     } else {
         wl_list_init(&wrapper->surface_commit.link);
+        wl_list_init(&wrapper->surface_destroy.link);
     }
 
     wrapper->destroy.notify = DecorationWrapper::handle_destroy;

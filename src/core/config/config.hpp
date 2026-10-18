@@ -488,7 +488,7 @@ public:
     void add_or_update_binding(uint32_t mods, xkb_keysym_t sym, const std::string& action, const std::string& combo);
 
     std::string init_user_config();
-    void ensure_default_files();
+    const std::vector<std::string>& get_loaded_files() const { return m_loaded_files; }
 
     struct SectionFrame {
         std::string type;
@@ -638,6 +638,7 @@ private:
     std::vector<GestureBinding> m_gesture_bindings;
     std::vector<WindowRule> m_window_rules;
     std::vector<std::string> m_plugins;
+    std::vector<std::string> m_loaded_files;
 };
 
 } // namespace miquland

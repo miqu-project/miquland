@@ -238,10 +238,12 @@ Output* OutputManager::find_output(struct wlr_output* wlr_out) const {
     return nullptr;
 }
 
-void OutputManager::add_output(Output* output) {
-    m_outputs.emplace_back(output);
-    if (m_server->get_ext_workspace_group() && output && output->get_wlr_output()) {
-        wlr_ext_workspace_group_handle_v1_output_enter(m_server->get_ext_workspace_group(), output->get_wlr_output());
+void OutputManager::add_output(std::unique_ptr<Output> output) {
+    if (!output) return;
+    Output* ptr = output.get();
+    m_outputs.push_back(std::move(output));
+    if (m_server->get_ext_workspace_group() && ptr->get_wlr_output()) {
+        wlr_ext_workspace_group_handle_v1_output_enter(m_server->get_ext_workspace_group(), ptr->get_wlr_output());
     }
     if (m_server->get_workspace_manager()) {
         m_server->get_workspace_manager()->recalculate_layout();
@@ -275,8 +277,8 @@ void OutputManager::handle_new_output(struct wl_listener* listener, void* data) 
     OutputManager* manager = wl_container_of(listener, manager, m_new_output_listener);
     auto* wlr_output = static_cast<struct wlr_output*>(data);
 
-    Output* output = new Output(manager->m_server, wlr_output);
-    manager->add_output(output);
+    auto output = std::make_unique<Output>(manager->m_server, wlr_output);
+    manager->add_output(std::move(output));
 }
 
 void OutputManager::reapply_all_configs() {

@@ -938,10 +938,6 @@ std::string Config::init_user_config() {
     return config_path;
 }
 
-void Config::ensure_default_files() {
-    init_user_config();
-}
-
 static std::string resolve_exec_command(const std::string& raw_cmd) {
     std::string cmd = trim(raw_cmd);
     if (cmd.empty()) return "";
@@ -1946,6 +1942,17 @@ void Config::load_file(const std::string& path, std::vector<KeyBinding>& file_bi
         return;
     }
 
+    try {
+        std::string canonical = fs::canonical(path).string();
+        if (std::find(m_loaded_files.begin(), m_loaded_files.end(), canonical) == m_loaded_files.end()) {
+            m_loaded_files.push_back(canonical);
+        }
+    } catch (...) {
+        if (std::find(m_loaded_files.begin(), m_loaded_files.end(), path) == m_loaded_files.end()) {
+            m_loaded_files.push_back(path);
+        }
+    }
+
     std::vector<SectionFrame> section_stack;
     std::string line;
 
@@ -2049,6 +2056,7 @@ void Config::load() {
     m_blurred_layers.clear();
     m_layer_rules.clear();
     m_plugins.clear();
+    m_loaded_files.clear();
 
     load_file(path, file_bindings, has_bindings_in_file, file_gestures, has_gestures_in_file, file_rules, has_rules_in_file, file_monitors, has_monitors_in_file, file_exec_cmds, file_exec_once_cmds, 0);
 
