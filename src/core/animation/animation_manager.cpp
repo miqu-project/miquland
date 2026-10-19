@@ -2,6 +2,7 @@
 #include "core/server.hpp"
 #include "core/view.hpp"
 #include "core/layer_surface.hpp"
+#include "core/session_lock.hpp"
 #include "core/workspace.hpp"
 #include "core/output.hpp"
 #include "core/input/input.hpp"
@@ -976,6 +977,175 @@ bool AnimationManager::is_layer_animating(LayerSurface* surface) const {
         if (anim.surface == surface) return true;
     }
     return false;
+}
+
+void AnimationManager::schedule_session_lock_unmap_close(SessionLockSurface* surface) {
+    if (!surface || !m_server) return;
+
+    if (!Config::get().is_layer_close_animation_enabled()) return;
+
+    struct wlr_buffer* buf = surface->get_current_buffer();
+    if (!buf) return;
+
+    struct wlr_scene_tree* lock_tree = m_server->get_session_lock_tree();
+    if (!lock_tree) return;
+
+    struct wlr_scene_tree* closing_tree = wlr_scene_tree_create(lock_tree);
+    if (!closing_tree) return;
+
+    struct wlr_scene_buffer* scene_buf = wlr_scene_buffer_create(closing_tree, buf);
+    if (!scene_buf) {
+        wlr_scene_node_destroy(&closing_tree->node);
+        return;
+    }
+
+    int base_w = surface->get_width();
+    int base_h = surface->get_height();
+    if (base_w <= 0) base_w = (buf->width > 0 ? buf->width : 1920);
+    if (base_h <= 0) base_h = (buf->height > 0 ? buf->height : 1080);
+
+    Config::LayerRule rule = Config::get().get_layer_rule("miqulock");
+    bool blur_enabled = Config::get().is_layer_blur_enabled("miqulock");
+    if (!rule.blur_enabled_specified && !blur_enabled) {
+        Config::LayerRule lock_rule = Config::get().get_layer_rule("sessionlock");
+        bool lock_blur_enabled = Config::get().is_layer_blur_enabled("sessionlock");
+        if (lock_rule.blur_enabled_specified || lock_blur_enabled) {
+            rule = lock_rule;
+            blur_enabled = lock_blur_enabled;
+        }
+    }
+
+    if (rule.noanim_close) {
+        wlr_scene_node_destroy(&closing_tree->node);
+        return;
+    }
+
+    Config::LayerAnimStyle style = rule.anim_style_close;
+    if (style == Config::LayerAnimStyle::DefaultAuto) {
+        style = Config::LayerAnimStyle::Fade;
+    }
+    if (style == Config::LayerAnimStyle::None) {
+        wlr_scene_node_destroy(&closing_tree->node);
+        return;
+    }
+
+    struct wlr_scene_blur* blur = nullptr;
+    if (Config::get().is_blur_enabled() && blur_enabled) {
+        blur = wlr_scene_blur_create(closing_tree, base_w, base_h);
+        if (blur) {
+            wlr_scene_node_lower_to_bottom(&blur->node);
+            wlr_scene_blur_set_transparency_mask_source(blur, scene_buf);
+            if (rule.blur_bottom_only) {
+                wlr_scene_blur_set_should_only_blur_bottom_layer(blur, true);
+            }
+        }
+    }
+
+    int geo_x = surface->get_geo_x();
+    int geo_y = surface->get_geo_y();
+    wlr_scene_node_set_position(&closing_tree->node, geo_x, geo_y);
+
+    int duration = (rule.duration_close_ms > 0) ? rule.duration_close_ms : Config::get().get_layer_close_duration_ms();
+    if (duration <= 0) {
+        wlr_scene_node_destroy(&closing_tree->node);
+        return;
+    }
+    std::string curve_name = (!rule.curve_close.empty()) ? rule.curve_close : Config::get().get_layer_close_curve();
+    auto easing = Easing::from_name(curve_name);
+    double now = get_current_time_ms();
+
+    int fade_dur = (rule.fade_close_duration_ms >= 0) ? rule.fade_close_duration_ms : Config::get().get_layer_animation_fade_out_duration_ms();
+    if (fade_dur <= 0) fade_dur = duration;
+    std::string fade_curve_name = (!rule.fade_close_curve.empty()) ? rule.fade_close_curve : Config::get().get_layer_animation_fade_out_curve();
+    auto fade_easing = Easing::from_name(fade_curve_name);
+    bool fade_enabled = rule.fade_close_enabled && Config::get().is_layer_animation_fade_enabled();
+
+    int start_ox = 0, start_oy = 0;
+    int target_ox = 0, target_oy = 0;
+    double start_scale_x = 1.0, start_scale_y = 1.0;
+    double target_scale_x = 1.0, target_scale_y = 1.0;
+    bool center_anchor = true;
+    float start_opacity = 1.0f, target_opacity = fade_enabled ? 0.0f : 1.0f;
+
+    if (style == Config::LayerAnimStyle::SlideTop) {
+        target_oy = -base_h;
+    } else if (style == Config::LayerAnimStyle::SlideBottom) {
+        target_oy = +base_h;
+    } else if (style == Config::LayerAnimStyle::SlideLeft) {
+        target_ox = -base_w;
+    } else if (style == Config::LayerAnimStyle::SlideRight) {
+        target_ox = +base_w;
+    } else if (style == Config::LayerAnimStyle::Slide) {
+        target_oy = -base_h;
+    } else if (style == Config::LayerAnimStyle::Popin) {
+        double pop_scale = (rule.popin_scale > 0.0) ? rule.popin_scale : Config::get().get_layer_animation_popin_scale();
+        target_scale_x = std::clamp(pop_scale, 0.1, 1.0);
+        target_scale_y = std::clamp(pop_scale, 0.1, 1.0);
+        center_anchor = true;
+    } else if (style == Config::LayerAnimStyle::Unroll) {
+        target_scale_x = 1.0;
+        target_scale_y = 0.0;
+        center_anchor = false;
+    } else if (style == Config::LayerAnimStyle::Unfold) {
+        target_scale_x = 1.0;
+        target_scale_y = 0.0;
+        center_anchor = true;
+    } else if (style == Config::LayerAnimStyle::Fade) {
+        fade_enabled = true;
+        target_opacity = 0.0f;
+    }
+
+    ClosingLayerAnimation anim;
+    anim.id = m_next_id++;
+    anim.scene_tree = closing_tree;
+    anim.blur_node = blur;
+    anim.shadow_node = nullptr;
+    anim.base_geo_x = geo_x;
+    anim.base_geo_y = geo_y;
+    anim.base_width = base_w;
+    anim.base_height = base_h;
+    anim.start_offset_x = start_ox;
+    anim.start_offset_y = start_oy;
+    anim.target_offset_x = target_ox;
+    anim.target_offset_y = target_oy;
+    anim.start_scale_x = start_scale_x;
+    anim.start_scale_y = start_scale_y;
+    anim.target_scale_x = target_scale_x;
+    anim.target_scale_y = target_scale_y;
+    anim.center_anchor = center_anchor;
+    anim.start_opacity = start_opacity;
+    anim.target_opacity = target_opacity;
+    anim.start_time_ms = now;
+    anim.duration_ms = duration;
+    anim.fade_duration_ms = fade_dur;
+    anim.easing_fn = easing;
+    anim.fade_easing_fn = fade_easing;
+    anim.fade_enabled = fade_enabled;
+    anim.on_complete = [closing_tree]() {
+        if (closing_tree) {
+            wlr_scene_node_destroy(&closing_tree->node);
+        }
+    };
+
+    m_closing_layer_animations.push_back(std::move(anim));
+    schedule_next_frame();
+}
+
+void AnimationManager::cancel_closing_lock_animations() {
+    if (!m_server || !m_server->get_session_lock_tree()) return;
+    struct wlr_scene_tree* lock_parent = m_server->get_session_lock_tree();
+
+    for (auto it = m_closing_layer_animations.begin(); it != m_closing_layer_animations.end(); ) {
+        if (it->scene_tree && it->scene_tree->node.parent == lock_parent) {
+            if (it->scene_tree) {
+                wlr_scene_node_destroy(&it->scene_tree->node);
+                it->scene_tree = nullptr;
+            }
+            it = m_closing_layer_animations.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void AnimationManager::cancel_for_layer(LayerSurface* surface) {

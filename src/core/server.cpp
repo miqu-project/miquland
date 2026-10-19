@@ -411,6 +411,10 @@ void Server::reload_config() {
         }
     }
 
+    if (m_session_lock) {
+        m_session_lock->update_blur();
+    }
+
     if (m_output_manager) {
         for (const auto& out : m_output_manager->get_outputs()) {
             if (out && out->get_wlr_output()) {
@@ -832,6 +836,10 @@ void Server::handle_new_session_lock(struct wl_listener* listener, void* data) {
         return;
     }
 
+    if (server->m_animation_manager) {
+        server->m_animation_manager->cancel_closing_lock_animations();
+    }
+
     log_info("Activating new session lock");
     server->m_session_lock = std::make_unique<SessionLock>(server, lock);
 }
@@ -839,6 +847,15 @@ void Server::handle_new_session_lock(struct wl_listener* listener, void* data) {
 void Server::unlock_session() {
     if (!m_session_lock) return;
     log_info("Session unlocked successfully");
+
+    if (m_animation_manager) {
+        for (const auto& surface : m_session_lock->get_surfaces()) {
+            if (surface) {
+                m_animation_manager->schedule_session_lock_unmap_close(surface.get());
+            }
+        }
+    }
+
     m_session_lock.reset();
 
     if (m_workspace_manager) {
@@ -875,6 +892,19 @@ void Server::handle_output_power_set_mode(struct wl_listener* listener, void* da
     wlr_output_state_set_enabled(&state, event->mode == ZWLR_OUTPUT_POWER_V1_MODE_ON);
     wlr_output_commit_state(event->output, &state);
     wlr_output_state_finish(&state);
+
+    if (event->mode == ZWLR_OUTPUT_POWER_V1_MODE_ON && server->is_locked() && server->get_session_lock()) {
+        auto* lock = server->get_session_lock();
+        double cur_x = server->get_input_manager()->get_cursor()->x;
+        double cur_y = server->get_input_manager()->get_cursor()->y;
+        auto* active_surf = lock->surface_at(cur_x, cur_y, nullptr, nullptr);
+        if (!active_surf && !lock->get_surfaces().empty()) {
+            active_surf = lock->get_surfaces().front().get();
+        }
+        if (active_surf) {
+            active_surf->focus();
+        }
+    }
 }
 
 struct IdleInhibitorWrapper {

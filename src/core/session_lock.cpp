@@ -2,6 +2,7 @@
 #include "core/server.hpp"
 #include "core/output.hpp"
 #include "core/input/input.hpp"
+#include "core/config/config.hpp"
 
 namespace miquland {
 
@@ -42,6 +43,7 @@ SessionLockSurface::~SessionLockSurface() {
         wlr_scene_node_destroy(&m_scene_tree->node);
         m_scene_tree = nullptr;
     }
+    m_blur_node = nullptr;
 }
 
 void SessionLockSurface::handle_destroy(struct wl_listener* listener, void* data) {
@@ -59,6 +61,76 @@ void SessionLockSurface::handle_surface_commit(struct wl_listener* listener, voi
         surface->m_configured = true;
         surface->m_lock->check_and_send_locked();
     }
+    surface->update_blur();
+}
+
+void SessionLockSurface::update_blur() {
+    if (!Config::get().is_blur_enabled()) {
+        if (m_blur_node) {
+            wlr_scene_node_set_enabled(&m_blur_node->node, false);
+        }
+        return;
+    }
+
+    if (!m_scene_tree || !m_lock_surface || !m_lock_surface->surface) {
+        if (m_blur_node) {
+            wlr_scene_node_set_enabled(&m_blur_node->node, false);
+        }
+        return;
+    }
+
+    // Map layerrule "miqulock" (and "sessionlock") to session lock surfaces
+    Config::LayerRule rule = Config::get().get_layer_rule("miqulock");
+    bool blur_enabled = Config::get().is_layer_blur_enabled("miqulock");
+    if (!rule.blur_enabled_specified && !blur_enabled) {
+        Config::LayerRule lock_rule = Config::get().get_layer_rule("sessionlock");
+        bool lock_blur_enabled = Config::get().is_layer_blur_enabled("sessionlock");
+        if (lock_rule.blur_enabled_specified || lock_blur_enabled) {
+            rule = lock_rule;
+            blur_enabled = lock_blur_enabled;
+        }
+    }
+
+    if (!blur_enabled) {
+        if (m_blur_node) {
+            wlr_scene_node_set_enabled(&m_blur_node->node, false);
+        }
+        return;
+    }
+
+    int w = m_lock_surface->surface->current.width;
+    int h = m_lock_surface->surface->current.height;
+    if (w <= 0 || h <= 0) {
+        if (m_lock_surface->output) {
+            wlr_output_effective_resolution(m_lock_surface->output, &w, &h);
+        }
+    }
+    if (w <= 0 || h <= 0) return;
+
+    if (!m_blur_node) {
+        m_blur_node = wlr_scene_blur_create(m_scene_tree, w, h);
+        if (m_blur_node) {
+            wlr_scene_node_lower_to_bottom(&m_blur_node->node);
+        }
+    }
+
+    if (m_blur_node) {
+        wlr_scene_blur_set_size(m_blur_node, w, h);
+        wlr_scene_node_set_enabled(&m_blur_node->node, true);
+        wlr_scene_node_lower_to_bottom(&m_blur_node->node);
+        wlr_scene_blur_set_should_only_blur_bottom_layer(m_blur_node, rule.blur_bottom_only);
+
+        struct wlr_scene_buffer* surf_buf = nullptr;
+        wlr_scene_node_for_each_buffer(&m_scene_tree->node,
+            [](struct wlr_scene_buffer* buffer, int sx, int sy, void* user_data) {
+                auto** out = static_cast<struct wlr_scene_buffer**>(user_data);
+                if (!*out) *out = buffer;
+            }, &surf_buf);
+
+        if (surf_buf) {
+            wlr_scene_blur_set_transparency_mask_source(m_blur_node, surf_buf);
+        }
+    }
 }
 
 void SessionLockSurface::focus() {
@@ -69,6 +141,59 @@ void SessionLockSurface::focus() {
         wlr_seat_keyboard_notify_enter(seat, m_lock_surface->surface,
             keyboard->keycodes, keyboard->num_keycodes, &keyboard->modifiers);
     }
+}
+
+struct wlr_buffer* SessionLockSurface::get_current_buffer() const {
+    if (m_lock_surface && m_lock_surface->surface && m_lock_surface->surface->buffer) {
+        return &m_lock_surface->surface->buffer->base;
+    }
+    struct wlr_scene_buffer* scene_buf = nullptr;
+    if (m_scene_tree) {
+        wlr_scene_node_for_each_buffer(&m_scene_tree->node,
+            [](struct wlr_scene_buffer* buffer, int sx, int sy, void* user_data) {
+                auto** out = static_cast<struct wlr_scene_buffer**>(user_data);
+                if (!*out && buffer && buffer->buffer) *out = buffer;
+            }, &scene_buf);
+    }
+    return scene_buf ? scene_buf->buffer : nullptr;
+}
+
+int SessionLockSurface::get_geo_x() const {
+    if (!m_server || !m_lock_surface || !m_lock_surface->output) return 0;
+    struct wlr_output_layout* layout = m_server->get_output_manager()->get_layout();
+    struct wlr_output_layout_output* layout_output = wlr_output_layout_get(layout, m_lock_surface->output);
+    return layout_output ? layout_output->x : 0;
+}
+
+int SessionLockSurface::get_geo_y() const {
+    if (!m_server || !m_lock_surface || !m_lock_surface->output) return 0;
+    struct wlr_output_layout* layout = m_server->get_output_manager()->get_layout();
+    struct wlr_output_layout_output* layout_output = wlr_output_layout_get(layout, m_lock_surface->output);
+    return layout_output ? layout_output->y : 0;
+}
+
+int SessionLockSurface::get_width() const {
+    if (m_lock_surface && m_lock_surface->surface && m_lock_surface->surface->current.width > 0) {
+        return m_lock_surface->surface->current.width;
+    }
+    if (m_lock_surface && m_lock_surface->output) {
+        int w = 0, h = 0;
+        wlr_output_effective_resolution(m_lock_surface->output, &w, &h);
+        return w;
+    }
+    return 0;
+}
+
+int SessionLockSurface::get_height() const {
+    if (m_lock_surface && m_lock_surface->surface && m_lock_surface->surface->current.height > 0) {
+        return m_lock_surface->surface->current.height;
+    }
+    if (m_lock_surface && m_lock_surface->output) {
+        int w = 0, h = 0;
+        wlr_output_effective_resolution(m_lock_surface->output, &w, &h);
+        return h;
+    }
+    return 0;
 }
 
 SessionLock::SessionLock(Server* server, struct wlr_session_lock_v1* lock)
@@ -165,6 +290,14 @@ void SessionLock::check_and_send_locked() {
 
     if (!m_surfaces.empty()) {
         m_surfaces.front()->focus();
+    }
+}
+
+void SessionLock::update_blur() {
+    for (const auto& surface : m_surfaces) {
+        if (surface) {
+            surface->update_blur();
+        }
     }
 }
 

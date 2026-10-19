@@ -16,6 +16,7 @@ class Server;
 class View;
 class Workspace;
 class LayerSurface;
+class SessionLockSurface;
 
 struct NodeAnimation {
     uint64_t id = 0;
@@ -144,6 +145,10 @@ public:
     void schedule_layer_close(LayerSurface* surface, std::function<void()> on_complete = nullptr);
     void schedule_layer_unmap_close(LayerSurface* surface);
     bool is_layer_animating(LayerSurface* surface) const;
+
+    // High-level session lock animations (unlock only)
+    void schedule_session_lock_unmap_close(SessionLockSurface* surface);
+    void cancel_closing_lock_animations();
 
     // Interactive 1:1 Workspace Gestures
     void begin_workspace_swipe(int fingers);

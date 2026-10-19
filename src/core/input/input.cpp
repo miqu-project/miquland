@@ -1574,6 +1574,22 @@ void Keyboard::handle_key(struct wl_listener* listener, void* data) {
     }
 
     if (!handled) {
+        if (kb->m_server->is_locked() && kb->m_server->get_session_lock()) {
+            wlr_seat_set_keyboard(seat, kb->m_keyboard);
+            struct wlr_surface* focused = seat->keyboard_state.focused_surface;
+            if (!focused) {
+                auto* lock = kb->m_server->get_session_lock();
+                double cur_x = kb->m_server->get_input_manager()->get_cursor()->x;
+                double cur_y = kb->m_server->get_input_manager()->get_cursor()->y;
+                auto* active_surf = lock->surface_at(cur_x, cur_y, nullptr, nullptr);
+                if (!active_surf && !lock->get_surfaces().empty()) {
+                    active_surf = lock->get_surfaces().front().get();
+                }
+                if (active_surf) {
+                    active_surf->focus();
+                }
+            }
+        }
         wlr_seat_set_keyboard(seat, kb->m_keyboard);
         wlr_seat_keyboard_notify_key(seat, event->time_msec, event->keycode, event->state);
     }
