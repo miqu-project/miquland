@@ -146,16 +146,7 @@ bool Server::init() {
         return false;
     }
 
-    if (Config::get().is_blur_enabled()) {
-        wlr_scene_set_blur_data(m_scene,
-            Config::get().get_blur_num_passes(),
-            Config::get().get_blur_radius(),
-            Config::get().get_blur_noise(),
-            Config::get().get_blur_brightness(),
-            Config::get().get_blur_contrast(),
-            Config::get().get_blur_saturation());
-        log_info("SceneFX Dual Kawase background blur initialized");
-    }
+    sync_blur_config();
 
     // Standard Layer Scene Tree Hierarchy:
     // Background -> Bottom -> Workspaces (Tiled Apps) -> Top -> Overlay -> Session Lock
@@ -397,6 +388,7 @@ int Server::handle_config_reload_timer(void* data) {
 void Server::reload_config() {
     Config::get().load();
     update_sourced_file_watches();
+    sync_blur_config();
 
     if (m_output_manager) {
         m_output_manager->reapply_all_configs();
@@ -423,6 +415,7 @@ void Server::reload_config() {
         for (const auto& out : m_output_manager->get_outputs()) {
             if (out && out->get_wlr_output()) {
                 arrange_layers(out->get_wlr_output());
+                wlr_output_schedule_frame(out->get_wlr_output());
             }
         }
     }
@@ -1036,6 +1029,23 @@ void Server::handle_cursor_shape_request_set_shape(struct wl_listener* listener,
         const char* name = wlr_cursor_shape_v1_name(event->shape);
         server->m_input_manager->set_cursor_icon(name);
     }
+}
+
+void Server::sync_blur_config() {
+    if (!m_scene) return;
+    if (Config::get().is_blur_enabled()) {
+        wlr_scene_set_blur_data(m_scene,
+            Config::get().get_blur_num_passes(),
+            Config::get().get_blur_radius(),
+            Config::get().get_blur_noise(),
+            Config::get().get_blur_brightness(),
+            Config::get().get_blur_contrast(),
+            Config::get().get_blur_saturation());
+        log_info("SceneFX Dual Kawase blur configuration synchronized");
+    } else {
+        wlr_scene_set_blur_data(m_scene, 0, 0, 0.0f, 1.0f, 1.0f, 1.0f);
+    }
+    mark_optimized_blur_dirty();
 }
 
 void Server::mark_optimized_blur_dirty() {
