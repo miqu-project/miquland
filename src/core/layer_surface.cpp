@@ -444,6 +444,8 @@ void LayerSurface::handle_surface_commit(struct wl_listener* listener, void* dat
 
     if (!wlr_surface->initialized) return;
 
+    int old_w = surface->m_width;
+    int old_h = surface->m_height;
     if (wlr_surface->surface) {
         if (wlr_surface->surface->current.width > 0) surface->m_width = wlr_surface->surface->current.width;
         if (wlr_surface->surface->current.height > 0) surface->m_height = wlr_surface->surface->current.height;
@@ -479,8 +481,10 @@ void LayerSurface::handle_surface_commit(struct wl_listener* listener, void* dat
     }
 
     surface->update_tree();
-    surface->update_blur();
-    surface->update_shadow();
+    if (old_w != surface->m_width || old_h != surface->m_height) {
+        surface->update_blur();
+        surface->update_shadow();
+    }
 
     if (surface->m_current_layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND && surface->m_server) {
         surface->m_server->mark_optimized_blur_dirty();

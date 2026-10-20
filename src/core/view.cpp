@@ -1893,8 +1893,6 @@ void View::handle_commit(struct wl_listener* listener, void* data) {
 
         if (view->m_is_overview_scaled) {
             view->reapply_overview_scale();
-        } else {
-            view->update_frame();
         }
 
         if (view->tearing_allowed()) {
