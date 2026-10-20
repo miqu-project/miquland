@@ -165,6 +165,9 @@ public:
     bool is_workspace_cycle_enabled() const { return m_workspace_cycle; }
     void set_workspace_cycle_enabled(bool enabled) { m_workspace_cycle = enabled; }
 
+    bool is_vfr_enabled() const { return m_vfr_enabled; }
+    void set_vfr_enabled(bool enabled) { m_vfr_enabled = enabled; }
+
     // Auto-float fixed-size windows: when a toplevel declares min==max size constraints
     // (i.e. a non-resizable window), automatically treat it as floating and center it.
     bool is_auto_float_fixed_size_enabled() const { return m_auto_float_fixed_size; }
@@ -578,6 +581,7 @@ private:
     int m_cursor_size = 24;
     double m_default_split_ratio = 0.5;
     bool m_workspace_cycle = true;
+    bool m_vfr_enabled = true;
     bool m_auto_float_fixed_size = true;
 
     bool m_tap_to_click = true;

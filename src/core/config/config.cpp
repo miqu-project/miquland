@@ -130,6 +130,7 @@ void Config::set_defaults() {
     m_cursor_size = 24;
     m_default_split_ratio = 0.5;
     m_workspace_cycle = false;
+    m_vfr_enabled = true;
 }
 
 void Config::add_or_update_binding(uint32_t mods, xkb_keysym_t sym, const std::string& action, const std::string& combo) {
@@ -1223,6 +1224,8 @@ void Config::parse_general_entry(const std::string& path_str, const std::string&
             m_allow_tearing = (value == "true" || value == "1" || value == "yes");
         } else if (key == "workspace_cycle") {
             m_workspace_cycle = (value == "true" || value == "1" || value == "yes");
+        } else if (key == "vfr" || key == "variable_frame_rate") {
+            m_vfr_enabled = (value == "true" || value == "1" || value == "yes");
         } else if (key == "auto_float_fixed_size") {
             m_auto_float_fixed_size = (value == "true" || value == "1" || value == "yes");
         } else if (key == "resize_on_border") {
@@ -2136,6 +2139,7 @@ void Config::save() {
     file << "    smart_gaps = " << (m_smart_gaps ? "true" : "false") << "\n";
     file << "    allow_tearing = " << (m_allow_tearing ? "true" : "false") << "\n";
     file << "    workspace_cycle = " << (m_workspace_cycle ? "true" : "false") << "\n";
+    file << "    vfr = " << (m_vfr_enabled ? "true" : "false") << "\n";
     file << "    resize_on_border = " << (m_resize_on_border ? "true" : "false") << "\n";
     file << "    border_grab_area = " << m_border_grab_area << "\n";
     file << "    gaps {\n";

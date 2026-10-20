@@ -161,6 +161,9 @@ bool Server::init() {
     // Optimized blur node: sits on m_layer_bottom_tree to sample the background/wallpaper
     // before workspaces and top layer surfaces are rendered
     m_optimized_blur = wlr_scene_optimized_blur_create(m_layer_bottom_tree, 1920, 1080);
+    if (m_optimized_blur) {
+        wlr_scene_node_set_enabled(&m_optimized_blur->node, Config::get().is_blur_enabled());
+    }
 
     m_session_lock_manager = wlr_session_lock_manager_v1_create(m_wl_display);
     if (m_session_lock_manager) {
@@ -1063,7 +1066,11 @@ void Server::handle_cursor_shape_request_set_shape(struct wl_listener* listener,
 
 void Server::sync_blur_config() {
     if (!m_scene) return;
-    if (Config::get().is_blur_enabled()) {
+    bool blur_on = Config::get().is_blur_enabled();
+    if (m_optimized_blur) {
+        wlr_scene_node_set_enabled(&m_optimized_blur->node, blur_on);
+    }
+    if (blur_on) {
         wlr_scene_set_blur_data(m_scene,
             Config::get().get_blur_num_passes(),
             Config::get().get_blur_radius(),
@@ -1072,14 +1079,14 @@ void Server::sync_blur_config() {
             Config::get().get_blur_contrast(),
             Config::get().get_blur_saturation());
         log_info("SceneFX Dual Kawase blur configuration synchronized");
+        mark_optimized_blur_dirty();
     } else {
         wlr_scene_set_blur_data(m_scene, 0, 0, 0.0f, 1.0f, 1.0f, 1.0f);
     }
-    mark_optimized_blur_dirty();
 }
 
 void Server::mark_optimized_blur_dirty() {
-    if (m_optimized_blur) {
+    if (m_optimized_blur && Config::get().is_blur_enabled()) {
         wlr_scene_optimized_blur_mark_dirty(m_optimized_blur);
     }
 }
@@ -1087,6 +1094,9 @@ void Server::mark_optimized_blur_dirty() {
 void Server::update_optimized_blur_geometry(int width, int height) {
     if (m_optimized_blur && width > 0 && height > 0) {
         wlr_scene_optimized_blur_set_size(m_optimized_blur, width, height);
+        if (!Config::get().is_blur_enabled()) {
+            wlr_scene_node_set_enabled(&m_optimized_blur->node, false);
+        }
     }
 }
 

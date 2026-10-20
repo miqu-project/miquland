@@ -137,9 +137,23 @@ void Output::handle_frame(struct wl_listener* listener, void* data) {
         output->m_server->get_animation_manager()->tick(now_ms);
     }
 
-    wlr_scene_output_commit(output->m_scene_output, nullptr);
+    if (!wlr_scene_output_needs_frame(output->m_scene_output)) {
+        return;
+    }
 
-    wlr_scene_output_send_frame_done(output->m_scene_output, &now);
+    struct wlr_output_state state;
+    wlr_output_state_init(&state);
+
+    if (!wlr_scene_output_build_state(output->m_scene_output, &state, nullptr)) {
+        wlr_output_state_finish(&state);
+        return;
+    }
+
+    if (wlr_output_commit_state(output->m_wlr_output, &state)) {
+        wlr_scene_output_send_frame_done(output->m_scene_output, &now);
+    }
+
+    wlr_output_state_finish(&state);
 }
 
 bool Output::commit_tearing() {
@@ -165,7 +179,6 @@ bool Output::commit_tearing() {
         return true;
     }
 
-    wlr_output_schedule_frame(m_wlr_output);
     return false;
 }
 

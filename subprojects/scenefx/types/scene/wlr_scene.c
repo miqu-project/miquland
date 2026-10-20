@@ -2888,7 +2888,7 @@ static bool should_blur_node_extend_damage(struct wlr_scene_node *node,
 	case WLR_SCENE_NODE_OPTIMIZED_BLUR:;
 		struct wlr_scene_optimized_blur *optimized_node =
 			wlr_scene_optimized_blur_from_node(node);
-		if (!optimized_node->dirty) {
+		if (!optimized_node->dirty || !fx_pass->has_blur) {
 			return false;
 		}
 		break;
