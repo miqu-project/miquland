@@ -648,15 +648,15 @@ void AnimationManager::schedule_layer_open(LayerSurface* surface) {
     if (surf_h <= 0) surf_h = 200;
 
     if (style == Config::LayerAnimStyle::SlideTop) {
-        start_oy = -surf_h;
+        start_oy = -(surf_h - 1);
     } else if (style == Config::LayerAnimStyle::SlideBottom) {
-        start_oy = +surf_h;
+        start_oy = +(surf_h - 1);
     } else if (style == Config::LayerAnimStyle::SlideLeft) {
-        start_ox = -surf_w;
+        start_ox = -(surf_w - 1);
     } else if (style == Config::LayerAnimStyle::SlideRight) {
-        start_ox = +surf_w;
+        start_ox = +(surf_w - 1);
     } else if (style == Config::LayerAnimStyle::Slide) {
-        start_oy = -surf_h;
+        start_oy = -(surf_h - 1);
     } else if (style == Config::LayerAnimStyle::Popin) {
         double pop_scale = (rule.popin_scale > 0.0) ? rule.popin_scale : Config::get().get_layer_animation_popin_scale();
         start_scale_x = std::clamp(pop_scale, 0.1, 1.0);

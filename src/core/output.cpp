@@ -137,7 +137,10 @@ void Output::handle_frame(struct wl_listener* listener, void* data) {
         output->m_server->get_animation_manager()->tick(now_ms);
     }
 
-    if (!wlr_scene_output_needs_frame(output->m_scene_output)) {
+    bool has_active_anims = (output->m_server && output->m_server->get_animation_manager() &&
+                             output->m_server->get_animation_manager()->has_active_animations());
+
+    if (!wlr_scene_output_needs_frame(output->m_scene_output) && !has_active_anims) {
         return;
     }
 
