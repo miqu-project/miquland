@@ -75,15 +75,15 @@ Installs the binary to `/usr/bin/miquland` and the system default configuration 
 
 ## 📸 Screenshots
 
-![Screenshot 1](assets/sc1.png)
+![Screenshot 1](https://raw.githubusercontent.com/miqu-project/miqu-project.github.io/main/assets/screenshots/sc1.png)
 
-![Screenshot 2](assets/sc2.png)
+![Screenshot 2](https://raw.githubusercontent.com/miqu-project/miqu-project.github.io/main/assets/screenshots/sc2.png)
 
-![Screenshot 3](assets/sc3.png)
+![Screenshot 3](https://raw.githubusercontent.com/miqu-project/miqu-project.github.io/main/assets/screenshots/sc3.png)
 
-![Screenshot 4](assets/sc4.png)
+![Screenshot 4](https://raw.githubusercontent.com/miqu-project/miqu-project.github.io/main/assets/screenshots/sc4.png)
 
-![Screenshot 5](assets/sc5.png)
+![Screenshot 5](https://raw.githubusercontent.com/miqu-project/miqu-project.github.io/main/assets/screenshots/sc5.png)
 
 ---
 
