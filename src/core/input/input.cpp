@@ -236,18 +236,32 @@ void InputManager::spawn_command(const char* cmd) {
     }
 
     if (pid == 0) {
-        // Double-fork so grandchild process is adopted by init/systemd
-        pid_t grand_pid = fork();
-        if (grand_pid == 0) {
-            setsid();
-            execl("/bin/sh", "sh", "-c", cmd, nullptr);
-            _exit(127);
-        }
-        _exit(grand_pid < 0 ? 1 : 0);
+        setpgid(0, 0);
+        execl("/bin/sh", "sh", "-c", cmd, nullptr);
+        _exit(127);
     }
 
-    // Parent waits for immediate child to prevent any zombie accumulation
-    waitpid(pid, nullptr, 0);
+    m_spawned_pids.push_back(pid);
+}
+
+void InputManager::terminate_spawned_processes() {
+    log_info("Terminating all spawned session processes (" + std::to_string(m_spawned_pids.size()) + " tracked)");
+    for (pid_t pid : m_spawned_pids) {
+        if (pid > 0) {
+            kill(-pid, SIGTERM);
+            kill(pid, SIGTERM);
+        }
+    }
+
+    usleep(80000); // 80ms grace period
+
+    for (pid_t pid : m_spawned_pids) {
+        if (pid > 0 && kill(pid, 0) == 0) {
+            kill(-pid, SIGKILL);
+            kill(pid, SIGKILL);
+        }
+    }
+    m_spawned_pids.clear();
 }
 
 void InputManager::remove_keyboard(Keyboard* kb) {

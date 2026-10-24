@@ -303,6 +303,7 @@ int do_shutdown(const std::string& socket_path, int argc, char* argv[], int star
             timeout_ms = std::atoi(argv[++i]);
         } else if (arg == "--force") {
             force = true;
+            timeout_ms = 0;
         } else if (arg == "--dry-run") {
             dry_run = true;
         } else if (arg == "--no-exit") {
@@ -311,6 +312,7 @@ int do_shutdown(const std::string& socket_path, int argc, char* argv[], int star
             post_cmd = argv[++i];
         }
     }
+    (void)force;
 
     std::cout << "==> Initiating graceful desktop shutdown..." << std::endl;
 
@@ -347,15 +349,8 @@ int do_shutdown(const std::string& socket_path, int argc, char* argv[], int star
             ).count();
 
             if (elapsed >= timeout_ms) {
-                if (force) {
-                    std::cout << "==> Timeout elapsed (" << timeout_ms << "ms). Forcing exit..." << std::endl;
-                    break;
-                } else {
-                    std::cerr << "Error: " << remaining_ids.size()
-                              << " window(s) did not exit within " << timeout_ms
-                              << "ms. Aborting. Use --force to exit anyway." << std::endl;
-                    return 1;
-                }
+                std::cout << "==> Timeout reached (" << timeout_ms << "ms). Proceeding with session teardown..." << std::endl;
+                break;
             }
         }
     }

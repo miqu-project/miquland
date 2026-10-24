@@ -478,7 +478,11 @@ void Server::run() {
 
 void Server::terminate() {
     log_info("Terminating miquland compositor");
+    if (m_input_manager) {
+        m_input_manager->terminate_spawned_processes();
+    }
     if (m_wl_display) {
+        wl_display_destroy_clients(m_wl_display);
         wl_display_terminate(m_wl_display);
     }
 }

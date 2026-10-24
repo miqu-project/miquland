@@ -33,6 +33,7 @@ public:
 
     bool handle_keybinding(uint32_t modifiers, xkb_keysym_t keysym);
     void spawn_command(const char* cmd);
+    void terminate_spawned_processes();
     void remove_keyboard(Keyboard* kb);
     void remove_pointer(struct wlr_input_device* device);
     void remove_touch_device(struct wlr_input_device* device);
@@ -155,6 +156,8 @@ private:
     struct wl_listener m_cursor_touch_motion_listener;
     struct wl_listener m_cursor_touch_cancel_listener;
     struct wl_listener m_cursor_touch_frame_listener;
+
+    std::vector<pid_t> m_spawned_pids;
 };
 
 class Keyboard {
