@@ -8,6 +8,7 @@
 #include "core/session_lock.hpp"
 #include "core/plugin_manager.hpp"
 #include "core/animation/animation_manager.hpp"
+#include "core/ipc/ipc_server.hpp"
 #include "core/config/config.hpp"
 extern "C" {
 #include <scenefx/render/fx_renderer/fx_renderer.h>
@@ -45,6 +46,10 @@ Server::~Server() {
     if (m_inotify_file_wd >= 0 && m_inotify_fd >= 0) inotify_rm_watch(m_inotify_fd, m_inotify_file_wd);
     if (m_inotify_wd >= 0 && m_inotify_fd >= 0) inotify_rm_watch(m_inotify_fd, m_inotify_wd);
     if (m_inotify_fd >= 0) ::close(m_inotify_fd);
+
+    if (m_ipc_server) {
+        m_ipc_server.reset();
+    }
 
     if (m_plugin_manager) {
         m_plugin_manager->unload_all();
@@ -273,7 +278,13 @@ bool Server::init() {
     log_info("Wayland compositor running on WAYLAND_DISPLAY=" + std::string(m_socket_name));
     setenv("WAYLAND_DISPLAY", m_socket_name, 1);
     setenv("XDG_CURRENT_DESKTOP", "miquland", 1);
-    spawn_async_command({"systemctl", "--user", "import-environment", "WAYLAND_DISPLAY", "DISPLAY", "XDG_CURRENT_DESKTOP", "XCURSOR_THEME", "XCURSOR_SIZE"});
+
+    m_ipc_server = std::make_unique<IpcServer>(this);
+    if (!m_ipc_server->init(m_socket_name)) {
+        log_warn("Failed to initialize IPC server");
+    }
+
+    spawn_async_command({"systemctl", "--user", "import-environment", "WAYLAND_DISPLAY", "DISPLAY", "XDG_CURRENT_DESKTOP", "XCURSOR_THEME", "XCURSOR_SIZE", "MIQULAND_SOCKET"});
 
     setup_config_watcher();
 

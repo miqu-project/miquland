@@ -58,6 +58,14 @@
 
 ---
 
+## 🎮 Compositor Controller & IPC (`miquctl`)
+
+`miquland` includes a native Unix domain socket IPC subsystem and first-party CLI controller: **`miquctl`**. It enables querying workspaces, client windows, and outputs, issuing layout dispatches, real-time event streaming (`miquctl subscribe`), and orchestrating graceful application shutdowns (`miquctl shutdown`).
+
+> 📖 **Full Documentation**: For the complete command reference, wire protocol specifications, and third-party bar integration, visit the [**Miqu Project Documentation Portal**](https://miqu-project.github.io/#docs).
+
+---
+
 ## 🔨 Building & Installation
 
 ### 1. Build Locally (Unprivileged)

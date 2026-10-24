@@ -77,6 +77,7 @@ add_executable(miquland
     src/core/common/border_paint.cpp
     src/core/plugin_manager.cpp
     src/core/animation/animation_manager.cpp
+    src/core/ipc/ipc_server.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/xdg-shell-protocol.h
     ${CMAKE_CURRENT_BINARY_DIR}/xdg-shell-protocol.c
     ${CMAKE_CURRENT_BINARY_DIR}/wlr-layer-shell-unstable-v1-protocol.h
@@ -124,9 +125,19 @@ target_compile_options(miquland PRIVATE
     -Wno-unused-parameter
 )
 
+add_executable(miquctl
+    src/ipc/miquctl.cpp
+)
+target_include_directories(miquctl PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_compile_options(miquctl PRIVATE
+    -Wall -Wextra -Wpedantic
+)
+
 # Installation targets
 include(GNUInstallDirs)
-install(TARGETS miquland RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS miquland miquctl RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 # Install plugin development headers
 install(DIRECTORY include/miquland DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
