@@ -210,25 +210,34 @@ void print_help(const char* prog) {
               << "  workspaces                List all workspaces and active states\n"
               << "  clients, windows          List all mapped application windows\n"
               << "  monitors, outputs         List all connected outputs\n"
+              << "  activewindow              Get currently focused window\n"
+              << "  activeworkspace           Get currently active workspace\n"
               << "  version                   Display compositor version and protocol\n\n"
               << "Window & Layout Actions:\n"
               << "  dispatch <action> [args]  Execute a compositor dispatcher action:\n"
-              << "                              close [window_id]           Close target/focused window\n"
+              << "                              close [id]                  Politely close window\n"
+              << "                              kill [id]                   Forcefully kill window\n"
+              << "                              focus <dir|next|prev|id>    Focus directional/by ID\n"
+              << "                              move <dx> <dy> [id]         Relative move (floating)\n"
+              << "                              moveto <x> <y> [id]         Absolute move (floating)\n"
+              << "                              resize <dw> <dh> [id]       Resize window / split\n"
+              << "                              resizeto <w> <h> [id]       Set window size\n"
               << "                              workspace <id>              Switch to workspace <id>\n"
-              << "                              movetoworkspace <id> [win]  Move window to workspace\n"
-              << "                              toggle_floating             Toggle floating for active window\n"
-              << "                              toggle_fullscreen           Toggle fullscreen for active window\n"
+              << "                              movetoworkspace <id> [id]   Move window to workspace\n"
+              << "                              toggle_floating [id]        Toggle floating mode\n"
+              << "                              toggle_fullscreen [id]      Toggle fullscreen mode\n"
               << "                              toggle_layout               Toggle layout (Spiral/Stack)\n"
-              << "                              swap_main                   Swap focused window with master\n"
-              << "                              focus_next / focus_prev     Cycle window focus\n\n"
+              << "                              swap_main [id]              Swap window with master\n"
+              << "                              toggle_split                Toggle horizontal/vertical\n"
+              << "                              shutdown [timeout_ms]       Trigger graceful shutdown\n\n"
               << "Compositor & Session Control:\n"
-              << "  exit                      Terminate miquland session\n"
+              << "  exit                      Terminate miquland session immediately\n"
               << "  reload                    Reload miquland.conf configuration\n"
               << "  exec <command>            Execute a program in the compositor environment\n"
               << "  shutdown [options]        Gracefully close all windows, exit miquland, and\n"
               << "                            optionally trigger power actions:\n"
               << "                              --timeout <ms>   Wait timeout for apps (default: 3000)\n"
-              << "                              --force          Exit even if some windows fail to close\n"
+              << "                              --force          Immediate exit without waiting for apps\n"
               << "                              --dry-run        List windows that would be closed\n"
               << "                              --no-exit        Close all windows without exiting miquland\n"
               << "                              --post-cmd <cmd> Execute command after exit (e.g. reboot)\n\n"
@@ -312,58 +321,69 @@ int do_shutdown(const std::string& socket_path, int argc, char* argv[], int star
             post_cmd = argv[++i];
         }
     }
-    (void)force;
-
-    std::cout << "==> Initiating graceful desktop shutdown..." << std::endl;
-
-    std::string clients_json = send_command_get_response(socket_path, "clients");
-    std::vector<uint64_t> client_ids = parse_client_ids(clients_json);
 
     if (dry_run) {
-        std::cout << "[Dry-run] Open window count: " << client_ids.size() << std::endl;
-        std::cout << clients_json << std::endl;
+        std::string clients_json = send_command_get_response(socket_path, "clients");
+        std::cout << "[Dry-run] Application windows that would be closed:\n";
+        std::cout << pretty_print_json(clients_json) << std::endl;
         return 0;
     }
 
-    if (!client_ids.empty()) {
-        std::cout << "==> Sending polite close request to " << client_ids.size() << " application window(s)..." << std::endl;
+    if (no_exit) {
+        std::string clients_json = send_command_get_response(socket_path, "clients");
+        std::vector<uint64_t> client_ids = parse_client_ids(clients_json);
+        std::cout << "==> Closing " << client_ids.size() << " application window(s)..." << std::endl;
         for (uint64_t id : client_ids) {
             send_command_get_response(socket_path, "dispatch close " + std::to_string(id));
         }
-
-        // Wait for applications to cleanly exit or save state
-        auto start_time = std::chrono::steady_clock::now();
-        while (true) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-            std::string remaining_json = send_command_get_response(socket_path, "clients");
-            std::vector<uint64_t> remaining_ids = parse_client_ids(remaining_json);
-
-            if (remaining_ids.empty()) {
-                std::cout << "==> All application windows closed cleanly." << std::endl;
-                break;
-            }
-
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - start_time
-            ).count();
-
-            if (elapsed >= timeout_ms) {
-                std::cout << "==> Timeout reached (" << timeout_ms << "ms). Proceeding with session teardown..." << std::endl;
-                break;
-            }
-        }
+        std::cout << "==> Sent close requests to all application windows." << std::endl;
+        return 0;
     }
 
-    if (!no_exit) {
-        std::cout << "==> Terminating miquland compositor session..." << std::endl;
+    if (force) {
+        std::cout << "==> Forcing immediate session exit..." << std::endl;
         send_command_get_response(socket_path, "exit");
+        if (!post_cmd.empty()) {
+            std::cout << "==> Executing post-command: " << post_cmd << std::endl;
+            return system(post_cmd.c_str());
+        }
+        return 0;
     }
+
+    std::cout << "==> Initiating graceful desktop shutdown (timeout: " << timeout_ms << "ms)..." << std::endl;
+
+    int fd = connect_to_server(socket_path);
+    if (fd < 0) {
+        std::cerr << "Compositor is not running." << std::endl;
+        if (!post_cmd.empty()) {
+            return system(post_cmd.c_str());
+        }
+        return 0;
+    }
+
+    std::string req = "shutdown " + std::to_string(timeout_ms);
+    if (!send_request(fd, MessageType::Command, req)) {
+        std::cerr << "Error: Failed to send shutdown command to miquland" << std::endl;
+        close(fd);
+        return 1;
+    }
+
+    MessageType resp_type;
+    std::string resp;
+    if (read_response(fd, resp_type, resp)) {
+        std::cout << "==> Compositor acknowledged shutdown: " << resp << std::endl;
+    }
+
+    std::cout << "==> Waiting for miquland session teardown to complete..." << std::endl;
+    char dummy[256];
+    while (read(fd, dummy, sizeof(dummy)) > 0) {}
+    close(fd);
+
+    std::cout << "==> Desktop session successfully terminated." << std::endl;
 
     if (!post_cmd.empty()) {
         std::cout << "==> Executing post-command: " << post_cmd << std::endl;
-        int ret = system(post_cmd.c_str());
-        return ret;
+        return system(post_cmd.c_str());
     }
 
     return 0;

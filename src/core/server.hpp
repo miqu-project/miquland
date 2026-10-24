@@ -91,6 +91,8 @@ public:
     View* get_focused_view() const { return m_focused_view; }
 
     void reload_config();
+    void graceful_shutdown(uint32_t timeout_ms = 2500);
+    bool is_shutting_down() const { return m_shutting_down; }
 
     struct wlr_scene_tree* get_session_lock_tree() const { return m_session_lock_tree; }
     struct wlr_scene_tree* get_popup_tree() const { return m_popup_tree; }
@@ -107,6 +109,7 @@ private:
     static void handle_xwayland_new_surface(struct wl_listener* listener, void* data);
     static int handle_config_inotify(int fd, uint32_t mask, void* data);
     static int handle_config_reload_timer(void* data);
+    static int handle_shutdown_timer(void* data);
     void setup_config_watcher();
     void update_sourced_file_watches();
 
@@ -162,6 +165,8 @@ private:
     std::vector<int> m_inotify_sourced_wds;
     struct wl_event_source* m_config_event_source = nullptr;
     struct wl_event_source* m_config_reload_timer = nullptr;
+    bool m_shutting_down = false;
+    struct wl_event_source* m_shutdown_timer = nullptr;
 
     std::unique_ptr<OutputManager> m_output_manager;
     std::unique_ptr<WorkspaceManager> m_workspace_manager;

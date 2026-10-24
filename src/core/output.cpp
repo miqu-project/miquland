@@ -4,6 +4,7 @@
 #include "core/input/input.hpp"
 #include "core/config/config.hpp"
 #include "core/animation/animation_manager.hpp"
+#include "core/ipc/ipc_server.hpp"
 #include <ctime>
 
 namespace miquland {
@@ -268,9 +269,19 @@ void OutputManager::add_output(std::unique_ptr<Output> output) {
         m_server->get_input_manager()->reapply_device_config();
     }
     update_manager_config();
+
+    if (m_server->get_ipc_server() && ptr->get_wlr_output()) {
+        std::string payload = "{\"action\":\"connect\",\"name\":\"" + ipc::escape_json(ptr->get_wlr_output()->name ? ptr->get_wlr_output()->name : "unknown") + "\"}";
+        m_server->get_ipc_server()->broadcast_event("monitor", payload);
+    }
 }
 
 void OutputManager::remove_output(Output* output) {
+    std::string out_name;
+    if (output && output->get_wlr_output() && output->get_wlr_output()->name) {
+        out_name = output->get_wlr_output()->name;
+    }
+
     if (m_server->get_ext_workspace_group() && output && output->get_wlr_output()) {
         wlr_ext_workspace_group_handle_v1_output_leave(m_server->get_ext_workspace_group(), output->get_wlr_output());
     }
@@ -287,6 +298,11 @@ void OutputManager::remove_output(Output* output) {
         m_server->get_input_manager()->reapply_device_config();
     }
     update_manager_config();
+
+    if (m_server->get_ipc_server() && !out_name.empty()) {
+        std::string payload = "{\"action\":\"disconnect\",\"name\":\"" + ipc::escape_json(out_name) + "\"}";
+        m_server->get_ipc_server()->broadcast_event("monitor", payload);
+    }
 }
 
 void OutputManager::handle_new_output(struct wl_listener* listener, void* data) {

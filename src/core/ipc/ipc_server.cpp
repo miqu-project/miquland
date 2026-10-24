@@ -278,10 +278,21 @@ void IpcServer::handle_client_message(ClientConnection& client, ipc::MessageType
         send_response(client, ipc::MessageType::Response, handle_clients_query());
     } else if (cmd == "monitors" || cmd == "outputs") {
         send_response(client, ipc::MessageType::Response, handle_monitors_query());
+    } else if (cmd == "activewindow") {
+        send_response(client, ipc::MessageType::Response, handle_activewindow_query());
+    } else if (cmd == "activeworkspace") {
+        send_response(client, ipc::MessageType::Response, handle_activeworkspace_query());
     } else if (cmd == "version") {
         send_response(client, ipc::MessageType::Response, handle_version_query());
     } else if (cmd == "dispatch") {
         send_response(client, ipc::MessageType::Response, handle_dispatch(args));
+    } else if (cmd == "shutdown") {
+        uint32_t timeout_ms = 2500;
+        if (!args.empty()) {
+            try { timeout_ms = std::stoul(args); } catch (...) {}
+        }
+        send_response(client, ipc::MessageType::Response, R"({"status":"ok","action":"shutdown","timeout_ms":)" + std::to_string(timeout_ms) + "}");
+        m_server->graceful_shutdown(timeout_ms);
     } else if (cmd == "exit" || cmd == "quit") {
         send_response(client, ipc::MessageType::Response, R"({"status":"ok","action":"exit"})");
         m_server->terminate();
@@ -388,6 +399,47 @@ std::string IpcServer::handle_monitors_query() {
     return ss.str();
 }
 
+std::string IpcServer::handle_activewindow_query() {
+    View* v = m_server->get_focused_view();
+    if (!v || !v->is_mapped()) return "null";
+
+    size_t ws_id = v->get_workspace() ? v->get_workspace()->get_id() : 0;
+    std::ostringstream ss;
+    ss << "{"
+       << "\"id\":" << v->get_id() << ","
+       << "\"title\":\"" << ipc::escape_json(v->get_title()) << "\","
+       << "\"app_id\":\"" << ipc::escape_json(v->get_app_id()) << "\","
+       << "\"workspace_id\":" << ws_id << ","
+       << "\"focused\":true,"
+       << "\"floating\":" << (v->is_floating() ? "true" : "false") << ","
+       << "\"fullscreen\":" << (v->is_fullscreen() ? "true" : "false") << ","
+       << "\"geometry\":{"
+       << "\"x\":" << v->get_x() << ","
+       << "\"y\":" << v->get_y() << ","
+       << "\"width\":" << v->get_width() << ","
+       << "\"height\":" << v->get_height()
+       << "}}";
+    return ss.str();
+}
+
+std::string IpcServer::handle_activeworkspace_query() {
+    WorkspaceManager* wm = m_server->get_workspace_manager();
+    if (!wm) return "null";
+    Workspace* ws = wm->get_active_workspace();
+    if (!ws) return "null";
+
+    std::ostringstream ss;
+    ss << "{"
+       << "\"id\":" << ws->get_id() << ","
+       << "\"active\":true,"
+       << "\"visible\":" << (ws->is_visible() ? "true" : "false") << ","
+       << "\"view_count\":" << ws->total_view_count() << ","
+       << "\"tiled_view_count\":" << ws->get_tiled_views().size() << ","
+       << "\"floating_view_count\":" << ws->get_floating_views().size()
+       << "}";
+    return ss.str();
+}
+
 std::string IpcServer::handle_version_query() {
     return R"({"name":"miquland","version":"1.0.0","protocol":"miqu-ipc-v1"})";
 }
@@ -401,38 +453,125 @@ std::string IpcServer::handle_dispatch(const std::string& args) {
     std::string sub_action;
     iss >> sub_action;
 
+    WorkspaceManager* wm = m_server->get_workspace_manager();
+
     if (sub_action == "close") {
         uint64_t target_id = 0;
+        View* target = nullptr;
         if (iss >> target_id) {
-            View* target = m_server->get_view_by_id(target_id);
-            if (target) {
-                target->close();
-                return R"({"status":"ok","action":"close","target_id":)" + std::to_string(target_id) + "}";
+            target = m_server->get_view_by_id(target_id);
+            if (!target) {
+                return R"({"status":"error","message":"Target window not found"})";
             }
-            return R"({"status":"error","message":"Target window not found"})";
+        } else {
+            target = m_server->get_focused_view();
+            if (!target) {
+                return R"({"status":"error","message":"No focused window to close"})";
+            }
         }
-        View* focused = m_server->get_focused_view();
-        if (focused) {
-            focused->close();
-            return R"({"status":"ok","action":"close","focused":true})";
-        }
-        return R"({"status":"error","message":"No focused window to close"})";
+        target->close();
+        return R"({"status":"ok","action":"close","target_id":)" + std::to_string(target->get_id()) + "}";
     }
 
-    if (sub_action == "workspace") {
-        size_t ws_id = 0;
-        if (iss >> ws_id) {
-            if (m_server->get_workspace_manager()) {
-                m_server->get_workspace_manager()->switch_to_workspace(ws_id);
-                return R"({"status":"ok","action":"workspace","workspace_id":)" + std::to_string(ws_id) + "}";
+    if (sub_action == "kill") {
+        uint64_t target_id = 0;
+        View* target = nullptr;
+        if (iss >> target_id) {
+            target = m_server->get_view_by_id(target_id);
+            if (!target) {
+                return R"({"status":"error","message":"Target window not found"})";
             }
+        } else {
+            target = m_server->get_focused_view();
+            if (!target) {
+                return R"({"status":"error","message":"No focused window to kill"})";
+            }
+        }
+
+        uint64_t killed_id = target->get_id();
+        if (target->get_type() == ViewType::Xdg && target->get_xdg_toplevel() && target->get_xdg_toplevel()->base) {
+            struct wl_client* client = wl_resource_get_client(target->get_xdg_toplevel()->base->resource);
+            if (client) {
+                wl_client_destroy(client);
+            }
+        } else if (target->get_type() == ViewType::XWayland && target->get_xwayland_surface() && target->get_xwayland_surface()->surface) {
+            struct wl_client* client = wl_resource_get_client(target->get_xwayland_surface()->surface->resource);
+            if (client) {
+                wl_client_destroy(client);
+            }
+        } else {
+            target->close();
+        }
+        return R"({"status":"ok","action":"kill","target_id":)" + std::to_string(killed_id) + "}";
+    }
+
+    if (sub_action == "focus" || sub_action == "focus_next" || sub_action == "focus_prev" ||
+        sub_action == "next_window" || sub_action == "prev_window") {
+        if (!wm) return R"({"status":"error","message":"Workspace manager unavailable"})";
+
+        std::string target_spec;
+        if (sub_action == "focus") {
+            iss >> target_spec;
+        } else if (sub_action == "focus_next" || sub_action == "next_window") {
+            target_spec = "next";
+        } else {
+            target_spec = "prev";
+        }
+
+        if (target_spec.empty() || target_spec == "next") {
+            wm->focus_next_view();
+            return R"({"status":"ok","action":"focus","direction":"next"})";
+        } else if (target_spec == "prev") {
+            wm->focus_prev_view();
+            return R"({"status":"ok","action":"focus","direction":"prev"})";
+        } else if (target_spec == "left" || target_spec == "right" || target_spec == "up" || target_spec == "down") {
+            if (wm->focus_direction(target_spec)) {
+                return R"({"status":"ok","action":"focus","direction":")" + target_spec + "\"}";
+            }
+            return R"({"status":"error","message":"No window in direction: )" + target_spec + "\"}";
+        } else {
+            try {
+                uint64_t target_id = std::stoull(target_spec);
+                View* v = m_server->get_view_by_id(target_id);
+                if (v && v->is_mapped()) {
+                    v->focus();
+                    return R"({"status":"ok","action":"focus","target_id":)" + std::to_string(target_id) + "}";
+                }
+                return R"({"status":"error","message":"Window ID not found"})";
+            } catch (...) {
+                return R"({"status":"error","message":"Invalid focus argument: )" + ipc::escape_json(target_spec) + "\"}";
+            }
+        }
+    }
+
+    if (sub_action == "workspace" || sub_action.rfind("ws_", 0) == 0) {
+        if (!wm) return R"({"status":"error","message":"Workspace manager unavailable"})";
+        size_t ws_id = 0;
+        if (sub_action.rfind("ws_", 0) == 0) {
+            try { ws_id = std::stoul(sub_action.substr(3)); } catch (...) {}
+        } else {
+            iss >> ws_id;
+        }
+        if (ws_id > 0) {
+            wm->switch_to_workspace(ws_id);
+            return R"({"status":"ok","action":"workspace","workspace_id":)" + std::to_string(ws_id) + "}";
         }
         return R"({"status":"error","message":"Invalid workspace id"})";
     }
 
-    if (sub_action == "movetoworkspace" || sub_action == "move_to_workspace") {
+    if (sub_action == "movetoworkspace" || sub_action == "move_to_workspace" ||
+        sub_action.rfind("move_ws_", 0) == 0 || sub_action.rfind("move_to_ws_", 0) == 0) {
+        if (!wm) return R"({"status":"error","message":"Workspace manager unavailable"})";
         size_t ws_id = 0;
-        if (iss >> ws_id) {
+        if (sub_action.rfind("move_to_ws_", 0) == 0) {
+            try { ws_id = std::stoul(sub_action.substr(11)); } catch (...) {}
+        } else if (sub_action.rfind("move_ws_", 0) == 0) {
+            try { ws_id = std::stoul(sub_action.substr(8)); } catch (...) {}
+        } else {
+            iss >> ws_id;
+        }
+
+        if (ws_id > 0) {
             uint64_t target_id = 0;
             View* target = nullptr;
             if (iss >> target_id) {
@@ -441,17 +580,146 @@ std::string IpcServer::handle_dispatch(const std::string& args) {
                 target = m_server->get_focused_view();
             }
 
-            if (target && m_server->get_workspace_manager()) {
-                m_server->get_workspace_manager()->move_view_to_workspace(target, ws_id);
-                return R"({"status":"ok","action":"movetoworkspace","workspace_id":)" + std::to_string(ws_id) + "}";
+            if (target) {
+                wm->move_view_to_workspace(target, ws_id);
+                return R"({"status":"ok","action":"movetoworkspace","workspace_id":)" + std::to_string(ws_id) +
+                    ",\"target_id\":" + std::to_string(target->get_id()) + "}";
             }
             return R"({"status":"error","message":"Target window not found"})";
         }
         return R"({"status":"error","message":"Invalid workspace id"})";
     }
 
-    if (m_server->get_input_manager() && m_server->get_input_manager()->execute_action(args)) {
-        return R"({"status":"ok","action":")" + ipc::escape_json(args) + "\"}";
+    if (sub_action == "move" || sub_action == "moveto") {
+        int x = 0, y = 0;
+        if (!(iss >> x >> y)) {
+            return R"({"status":"error","message":"Usage: dispatch move/moveto <x> <y> [target_id]"})";
+        }
+        uint64_t target_id = 0;
+        View* target = (iss >> target_id) ? m_server->get_view_by_id(target_id) : m_server->get_focused_view();
+        if (!target) return R"({"status":"error","message":"Target window not found"})";
+        if (!target->is_floating()) return R"({"status":"error","message":"Window is not floating"})";
+
+        int new_x = (sub_action == "move") ? (target->get_x() + x) : x;
+        int new_y = (sub_action == "move") ? (target->get_y() + y) : y;
+        target->set_geometry(new_x, new_y, target->get_width(), target->get_height());
+        target->set_user_moved(true);
+        target->update_frame();
+        return R"({"status":"ok","action":")" + sub_action + R"(","x":)" + std::to_string(new_x) + R"(,"y":)" + std::to_string(new_y) + "}";
+    }
+
+    if (sub_action == "resize" || sub_action == "resizeto") {
+        int w = 0, h = 0;
+        if (!(iss >> w >> h)) {
+            return R"({"status":"error","message":"Usage: dispatch resize/resizeto <w> <h> [target_id]"})";
+        }
+        uint64_t target_id = 0;
+        View* target = (iss >> target_id) ? m_server->get_view_by_id(target_id) : m_server->get_focused_view();
+        if (!target) return R"({"status":"error","message":"Target window not found"})";
+
+        if (target->is_floating()) {
+            int new_w = (sub_action == "resize") ? std::max(100, target->get_width() + w) : std::max(100, w);
+            int new_h = (sub_action == "resize") ? std::max(80, target->get_height() + h) : std::max(80, h);
+            target->set_geometry(target->get_x(), target->get_y(), new_w, new_h);
+            target->update_frame();
+            return R"({"status":"ok","action":")" + sub_action + R"(","width":)" + std::to_string(new_w) + R"(,"height":)" + std::to_string(new_h) + "}";
+        } else {
+            if (wm && wm->get_active_workspace()) {
+                Workspace* ws = wm->get_active_workspace();
+                double delta = static_cast<double>(w) / 1000.0;
+                ws->set_split_ratio(ws->get_split_ratio() + delta);
+                wm->recalculate_layout();
+                return R"({"status":"ok","action":"resize_split","split_ratio":)" + std::to_string(ws->get_split_ratio()) + "}";
+            }
+        }
+    }
+
+    if (sub_action == "toggle_floating" || sub_action == "toggle_float" || sub_action == "set_floating") {
+        uint64_t target_id = 0;
+        int explicit_val = -1;
+        if (sub_action == "set_floating") {
+            iss >> explicit_val;
+        }
+        View* target = (iss >> target_id) ? m_server->get_view_by_id(target_id) : m_server->get_focused_view();
+        if (!target) return R"({"status":"error","message":"Target window not found"})";
+
+        if (explicit_val != -1) {
+            bool target_float = (explicit_val != 0);
+            if (target->is_floating() != target_float && target->get_workspace()) {
+                target->get_workspace()->toggle_floating(target);
+                if (wm) wm->recalculate_layout();
+            }
+        } else {
+            if (target->get_workspace()) {
+                target->get_workspace()->toggle_floating(target);
+                if (wm) wm->recalculate_layout();
+            }
+        }
+        return R"({"status":"ok","action":"toggle_floating","floating":)" + std::string(target->is_floating() ? "true" : "false") + "}";
+    }
+
+    if (sub_action == "toggle_fullscreen" || sub_action == "fullscreen" || sub_action == "set_fullscreen") {
+        uint64_t target_id = 0;
+        int explicit_val = -1;
+        if (sub_action == "set_fullscreen") {
+            iss >> explicit_val;
+        }
+        View* target = (iss >> target_id) ? m_server->get_view_by_id(target_id) : m_server->get_focused_view();
+        if (!target) return R"({"status":"error","message":"Target window not found"})";
+
+        bool new_fs = (explicit_val != -1) ? (explicit_val != 0) : !target->is_fullscreen();
+        target->set_fullscreen(new_fs);
+        return R"({"status":"ok","action":"fullscreen","fullscreen":)" + std::string(target->is_fullscreen() ? "true" : "false") + "}";
+    }
+
+    if (sub_action == "toggle_layout" || sub_action == "layout_toggle") {
+        if (wm) {
+            wm->toggle_layout_mode();
+            return R"({"status":"ok","action":"toggle_layout"})";
+        }
+        return R"({"status":"error","message":"Workspace manager unavailable"})";
+    }
+
+    if (sub_action == "swap_main" || sub_action == "swap_master") {
+        if (wm) {
+            uint64_t target_id = 0;
+            View* target = (iss >> target_id) ? m_server->get_view_by_id(target_id) : m_server->get_focused_view();
+            if (target && target->get_workspace()) {
+                target->get_workspace()->swap_with_main(target);
+                wm->recalculate_layout();
+                return R"({"status":"ok","action":"swap_main"})";
+            }
+            wm->swap_with_main();
+            return R"({"status":"ok","action":"swap_main"})";
+        }
+        return R"({"status":"error","message":"Workspace manager unavailable"})";
+    }
+
+    if (sub_action == "toggle_split" || sub_action == "split_toggle") {
+        if (wm) {
+            wm->toggle_active_split();
+            return R"({"status":"ok","action":"toggle_split"})";
+        }
+        return R"({"status":"error","message":"Workspace manager unavailable"})";
+    }
+
+    if (sub_action == "shutdown") {
+        uint32_t timeout_ms = 2500;
+        iss >> timeout_ms;
+        m_server->graceful_shutdown(timeout_ms);
+        return R"({"status":"ok","action":"shutdown","timeout_ms":)" + std::to_string(timeout_ms) + "}";
+    }
+
+    if (sub_action == "terminal") {
+        std::string term = Config::get().get_terminal();
+        if (term.empty()) term = "kitty || foot || alacritty || wezterm || weston-terminal || xterm";
+        if (m_server->get_input_manager()) m_server->get_input_manager()->spawn_command(term.c_str());
+        return R"({"status":"ok","action":"terminal"})";
+    }
+
+    if (sub_action == "menu" || sub_action == "app_launcher") {
+        if (m_server->get_input_manager()) m_server->get_input_manager()->spawn_command("miqulauncher");
+        return R"({"status":"ok","action":"menu"})";
     }
 
     return R"({"status":"error","message":"Unknown dispatch action: )" + ipc::escape_json(args) + "\"}";

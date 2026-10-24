@@ -37,6 +37,10 @@ Server::Server() {
 }
 
 Server::~Server() {
+    if (m_shutdown_timer) {
+        wl_event_source_remove(m_shutdown_timer);
+        m_shutdown_timer = nullptr;
+    }
     if (m_config_reload_timer) wl_event_source_remove(m_config_reload_timer);
     if (m_config_event_source) wl_event_source_remove(m_config_event_source);
     for (int wd : m_inotify_sourced_wds) {
@@ -478,6 +482,13 @@ void Server::run() {
 
 void Server::terminate() {
     log_info("Terminating miquland compositor");
+    if (m_shutdown_timer) {
+        wl_event_source_remove(m_shutdown_timer);
+        m_shutdown_timer = nullptr;
+    }
+    if (m_ipc_server) {
+        m_ipc_server->broadcast_event("shutdown", R"({"status":"terminating"})");
+    }
     if (m_input_manager) {
         m_input_manager->terminate_spawned_processes();
     }
@@ -485,6 +496,47 @@ void Server::terminate() {
         wl_display_destroy_clients(m_wl_display);
         wl_display_terminate(m_wl_display);
     }
+}
+
+void Server::graceful_shutdown(uint32_t timeout_ms) {
+    if (m_shutting_down) return;
+    m_shutting_down = true;
+
+    log_info("Initiating graceful desktop shutdown (timeout: " + std::to_string(timeout_ms) + "ms)...");
+
+    if (m_ipc_server) {
+        m_ipc_server->broadcast_event("shutdown", "{\"status\":\"initiated\",\"timeout_ms\":" + std::to_string(timeout_ms) + "}");
+    }
+
+    bool has_mapped_views = false;
+    for (const auto& view : m_views) {
+        if (view && view->is_mapped()) {
+            has_mapped_views = true;
+            view->close();
+        }
+    }
+
+    if (!has_mapped_views) {
+        log_info("No mapped application windows to close; terminating immediately.");
+        terminate();
+        return;
+    }
+
+    if (m_shutdown_timer) {
+        wl_event_source_remove(m_shutdown_timer);
+        m_shutdown_timer = nullptr;
+    }
+
+    m_shutdown_timer = wl_event_loop_add_timer(m_wl_event_loop, handle_shutdown_timer, this);
+    wl_event_source_timer_update(m_shutdown_timer, timeout_ms);
+}
+
+int Server::handle_shutdown_timer(void* data) {
+    auto* server = static_cast<Server*>(data);
+    log_info("Graceful shutdown timeout reached; proceeding with forced session teardown.");
+    server->m_shutdown_timer = nullptr;
+    server->terminate();
+    return 0;
 }
 
 void Server::add_view(std::unique_ptr<View> view) {
@@ -501,6 +553,25 @@ void Server::remove_view(View* view) {
         if (it->get() == view) {
             m_views.erase(it);
             break;
+        }
+    }
+
+    if (m_shutting_down) {
+        bool has_mapped = false;
+        for (const auto& v : m_views) {
+            if (v && v->is_mapped()) {
+                has_mapped = true;
+                break;
+            }
+        }
+        if (!has_mapped) {
+            log_info("All application windows unmapped during graceful shutdown; terminating now.");
+            if (m_shutdown_timer) {
+                wl_event_source_remove(m_shutdown_timer);
+                m_shutdown_timer = nullptr;
+            }
+            terminate();
+            return;
         }
     }
 
@@ -554,6 +625,19 @@ void Server::set_focused_view(View* view) {
     } else if (!m_focused_layer_surface) {
         if (m_input_manager && m_input_manager->get_seat()) {
             wlr_seat_keyboard_notify_clear_focus(m_input_manager->get_seat());
+        }
+    }
+
+    if (m_ipc_server) {
+        if (m_focused_view && m_focused_view->is_mapped()) {
+            size_t ws_id = m_focused_view->get_workspace() ? m_focused_view->get_workspace()->get_id() : 0;
+            std::string payload = "{\"action\":\"focus\",\"id\":" + std::to_string(m_focused_view->get_id()) +
+                ",\"title\":\"" + ipc::escape_json(m_focused_view->get_title()) +
+                "\",\"app_id\":\"" + ipc::escape_json(m_focused_view->get_app_id()) +
+                "\",\"workspace_id\":" + std::to_string(ws_id) + "}";
+            m_ipc_server->broadcast_event("window", payload);
+        } else {
+            m_ipc_server->broadcast_event("window", R"({"action":"focus","id":null})");
         }
     }
 }

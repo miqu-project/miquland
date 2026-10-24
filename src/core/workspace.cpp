@@ -5,6 +5,7 @@
 #include "core/config/config.hpp"
 #include "core/animation/animation_manager.hpp"
 #include "core/input/input.hpp"
+#include "core/ipc/ipc_server.hpp"
 #include <algorithm>
 #include <iostream>
 #include <limits>
@@ -477,6 +478,12 @@ void WorkspaceManager::commit_workspace_switch(size_t id) {
     if (m_server->get_input_manager()) {
         m_server->get_input_manager()->recheck_cursor_focus();
     }
+
+    if (m_server->get_ipc_server()) {
+        std::string payload = "{\"action\":\"switch\",\"workspace_id\":" + std::to_string(id) +
+            ",\"prev_workspace_id\":" + std::to_string(old_id) + "}";
+        m_server->get_ipc_server()->broadcast_event("workspace", payload);
+    }
 }
 
 size_t WorkspaceManager::get_prev_workspace_id() const {
@@ -631,6 +638,68 @@ void WorkspaceManager::focus_prev_view() {
 
     size_t prev_idx = (cur_idx == 0) ? count - 1 : cur_idx - 1;
     ws->get_view(prev_idx)->focus();
+}
+
+bool WorkspaceManager::focus_direction(const std::string& direction) {
+    Workspace* ws = get_active_workspace();
+    if (!ws) return false;
+    View* current = m_server->get_focused_view();
+    if (!current) {
+        View* best = find_best_focus_view(ws);
+        if (best) {
+            best->focus();
+            return true;
+        }
+        return false;
+    }
+
+    int cx = current->get_x() + current->get_width() / 2;
+    int cy = current->get_y() + current->get_height() / 2;
+
+    View* best_candidate = nullptr;
+    double min_score = std::numeric_limits<double>::max();
+
+    std::vector<View*> candidates;
+    for (View* v : ws->get_tiled_views()) {
+        if (v != current && v->is_mapped()) candidates.push_back(v);
+    }
+    for (View* v : ws->get_floating_views()) {
+        if (v != current && v->is_mapped()) candidates.push_back(v);
+    }
+
+    for (View* v : candidates) {
+        int vx = v->get_x() + v->get_width() / 2;
+        int vy = v->get_y() + v->get_height() / 2;
+        int dx = vx - cx;
+        int dy = vy - cy;
+
+        bool valid = false;
+        double score = 0.0;
+        if (direction == "left" && dx < 0) {
+            valid = true;
+            score = static_cast<double>(dx * dx) + 3.0 * static_cast<double>(dy * dy);
+        } else if (direction == "right" && dx > 0) {
+            valid = true;
+            score = static_cast<double>(dx * dx) + 3.0 * static_cast<double>(dy * dy);
+        } else if (direction == "up" && dy < 0) {
+            valid = true;
+            score = 3.0 * static_cast<double>(dx * dx) + static_cast<double>(dy * dy);
+        } else if (direction == "down" && dy > 0) {
+            valid = true;
+            score = 3.0 * static_cast<double>(dx * dx) + static_cast<double>(dy * dy);
+        }
+
+        if (valid && score < min_score) {
+            min_score = score;
+            best_candidate = v;
+        }
+    }
+
+    if (best_candidate) {
+        best_candidate->focus();
+        return true;
+    }
+    return false;
 }
 
 void WorkspaceManager::focus_window_index(size_t index) {

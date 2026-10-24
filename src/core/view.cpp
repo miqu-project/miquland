@@ -8,6 +8,7 @@
 #include "core/config/config.hpp"
 #include "core/plugin_manager.hpp"
 #include "core/animation/animation_manager.hpp"
+#include "core/ipc/ipc_server.hpp"
 #include <atomic>
 #include <cmath>
 #include <algorithm>
@@ -1667,6 +1668,15 @@ void View::handle_map(struct wl_listener* listener, void* data) {
     if (will_animate) {
         view->m_server->get_animation_manager()->schedule_window_open(view);
     }
+
+    if (view->m_server && view->m_server->get_ipc_server()) {
+        size_t ws_id = view->m_workspace ? view->m_workspace->get_id() : 0;
+        std::string payload = "{\"action\":\"map\",\"id\":" + std::to_string(view->m_id) +
+            ",\"title\":\"" + ipc::escape_json(view->get_title()) +
+            "\",\"app_id\":\"" + ipc::escape_json(view->get_app_id()) +
+            "\",\"workspace_id\":" + std::to_string(ws_id) + "}";
+        view->m_server->get_ipc_server()->broadcast_event("window", payload);
+    }
 }
 
 void View::handle_unmap(struct wl_listener* listener, void* data) {
@@ -1765,6 +1775,15 @@ void View::handle_unmap(struct wl_listener* listener, void* data) {
                 }
             }
         }
+    }
+
+    if (view->m_server && view->m_server->get_ipc_server()) {
+        size_t ws_id = view->m_workspace ? view->m_workspace->get_id() : 0;
+        std::string payload = "{\"action\":\"unmap\",\"id\":" + std::to_string(view->m_id) +
+            ",\"title\":\"" + ipc::escape_json(view->get_title()) +
+            "\",\"app_id\":\"" + ipc::escape_json(view->get_app_id()) +
+            "\",\"workspace_id\":" + std::to_string(ws_id) + "}";
+        view->m_server->get_ipc_server()->broadcast_event("window", payload);
     }
 }
 
@@ -1971,6 +1990,11 @@ void View::handle_set_title(struct wl_listener* listener, void* data) {
     std::string title = view->get_title();
     if (view->m_foreign_toplevel && !title.empty()) {
         wlr_foreign_toplevel_handle_v1_set_title(view->m_foreign_toplevel, title.c_str());
+    }
+    if (view->m_server && view->m_server->get_ipc_server()) {
+        std::string payload = "{\"action\":\"title\",\"id\":" + std::to_string(view->m_id) +
+            ",\"title\":\"" + ipc::escape_json(title) + "\"}";
+        view->m_server->get_ipc_server()->broadcast_event("window", payload);
     }
 }
 

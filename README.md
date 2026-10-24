@@ -52,7 +52,7 @@
 | `Super + 1` .. `Super + 9` | Switch to workspace 1–9 |
 | `Super + Shift + 1` .. `9` | Move focused window to workspace 1–9 |
 | `Super + Alt + L` | Lock session (`miqulock`) |
-| `Super + Shift + Q` | Exit compositor |
+| `Super + Shift + Q` | Graceful desktop shutdown (`shutdown` / `miquctl shutdown`) |
 
 *All shortcuts, gestures, window rules, and monitor configs can be customized in [`assets/miquland.conf`](assets/miquland.conf).*
 

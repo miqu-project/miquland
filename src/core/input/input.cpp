@@ -252,15 +252,6 @@ void InputManager::terminate_spawned_processes() {
             kill(pid, SIGTERM);
         }
     }
-
-    usleep(80000); // 80ms grace period
-
-    for (pid_t pid : m_spawned_pids) {
-        if (pid > 0 && kill(pid, 0) == 0) {
-            kill(-pid, SIGKILL);
-            kill(pid, SIGKILL);
-        }
-    }
     m_spawned_pids.clear();
 }
 
@@ -728,6 +719,8 @@ bool InputManager::execute_action(const std::string& action) {
             View* focused = m_server->get_focused_view();
             if (focused) m_server->get_workspace_manager()->move_view_to_workspace(focused, ws_id);
         } catch (...) {}
+    } else if (action == "shutdown" || action == "graceful_shutdown") {
+        m_server->graceful_shutdown(2500);
     } else if (action == "exit" || action == "quit") {
         m_server->terminate();
     } else {

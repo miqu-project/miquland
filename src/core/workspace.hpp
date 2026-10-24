@@ -98,6 +98,7 @@ public:
 
     void focus_next_view();
     void focus_prev_view();
+    bool focus_direction(const std::string& direction);
     void focus_window_index(size_t index);
     void swap_with_main();
     void toggle_layout_mode();
