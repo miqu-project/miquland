@@ -259,6 +259,9 @@ void OutputManager::add_output(std::unique_ptr<Output> output) {
     if (!output) return;
     Output* ptr = output.get();
     m_outputs.push_back(std::move(output));
+    if (m_server && ptr->get_wlr_output()) {
+        m_server->arrange_layers(ptr->get_wlr_output());
+    }
     if (m_server->get_ext_workspace_group() && ptr->get_wlr_output()) {
         wlr_ext_workspace_group_handle_v1_output_enter(m_server->get_ext_workspace_group(), ptr->get_wlr_output());
     }

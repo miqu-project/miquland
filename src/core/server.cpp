@@ -295,14 +295,6 @@ bool Server::init() {
     m_plugin_manager = std::make_unique<PluginManager>(this);
     m_plugin_manager->load_configured_plugins();
 
-    // Autostart commands from configuration
-    for (const auto& cmd : Config::get().get_exec_once_commands()) {
-        m_input_manager->spawn_command(cmd.c_str());
-    }
-    for (const auto& cmd : Config::get().get_exec_commands()) {
-        m_input_manager->spawn_command(cmd.c_str());
-    }
-
     return true;
 }
 
@@ -474,6 +466,16 @@ void Server::run() {
 
     if (!m_startup_cmd.empty() && m_input_manager) {
         m_input_manager->spawn_command(m_startup_cmd.c_str());
+    }
+
+    // Autostart commands from configuration (spawned once backend and outputs are active)
+    if (m_input_manager) {
+        for (const auto& cmd : Config::get().get_exec_once_commands()) {
+            m_input_manager->spawn_command(cmd.c_str());
+        }
+        for (const auto& cmd : Config::get().get_exec_commands()) {
+            m_input_manager->spawn_command(cmd.c_str());
+        }
     }
 
     log_info("Running Wayland event loop");
@@ -831,6 +833,9 @@ void Server::arrange_layers(struct wlr_output* output) {
             if (!l_surf || !l_surf->get_wlr_layer_surface()) continue;
             struct wlr_output* surf_out = l_surf->get_wlr_layer_surface()->output;
             if (!surf_out) {
+                if (primary_output) {
+                    l_surf->get_wlr_layer_surface()->output = primary_output;
+                }
                 surf_out = primary_output;
             }
             if (l_surf->get_layer() == layer && surf_out == output &&
@@ -851,6 +856,9 @@ void Server::arrange_layers(struct wlr_output* output) {
             if (!l_surf || !l_surf->get_wlr_layer_surface()) continue;
             struct wlr_output* surf_out = l_surf->get_wlr_layer_surface()->output;
             if (!surf_out) {
+                if (primary_output) {
+                    l_surf->get_wlr_layer_surface()->output = primary_output;
+                }
                 surf_out = primary_output;
             }
             if (l_surf->get_layer() == layer && surf_out == output &&

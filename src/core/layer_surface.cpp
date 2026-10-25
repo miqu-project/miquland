@@ -400,6 +400,10 @@ void LayerSurface::handle_map(struct wl_listener* listener, void* data) {
         surface->m_server->get_animation_manager()->schedule_layer_open(surface);
     }
 
+    if (surface->m_wlr_layer_surface && surface->m_wlr_layer_surface->output) {
+        wlr_output_schedule_frame(surface->m_wlr_layer_surface->output);
+    }
+
     // If layer surface requires keyboard interaction (e.g. rofi, fuzzel, swaylock), focus it
     if (surface->m_wlr_layer_surface->current.keyboard_interactive != ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE) {
         surface->m_server->focus_layer_surface(surface);
@@ -490,12 +494,20 @@ void LayerSurface::handle_surface_commit(struct wl_listener* listener, void* dat
         surface->m_server->mark_optimized_blur_dirty();
     }
 
+    if (!wlr_surface->output && surface->m_server && surface->m_server->get_output_manager()) {
+        auto* out = surface->m_server->get_output_manager()->get_primary_output();
+        if (out) {
+            wlr_surface->output = out->get_wlr_output();
+        }
+    }
+
     uint32_t committed = wlr_surface->current.committed;
-    if (committed & (WLR_LAYER_SURFACE_V1_STATE_LAYER |
-                     WLR_LAYER_SURFACE_V1_STATE_EXCLUSIVE_ZONE |
-                     WLR_LAYER_SURFACE_V1_STATE_MARGIN |
-                     WLR_LAYER_SURFACE_V1_STATE_DESIRED_SIZE |
-                     WLR_LAYER_SURFACE_V1_STATE_ANCHOR)) {
+    if (wlr_surface->initial_commit ||
+        (committed & (WLR_LAYER_SURFACE_V1_STATE_LAYER |
+                      WLR_LAYER_SURFACE_V1_STATE_EXCLUSIVE_ZONE |
+                      WLR_LAYER_SURFACE_V1_STATE_MARGIN |
+                      WLR_LAYER_SURFACE_V1_STATE_DESIRED_SIZE |
+                      WLR_LAYER_SURFACE_V1_STATE_ANCHOR))) {
         surface->m_server->arrange_layers(wlr_surface->output);
     }
 
