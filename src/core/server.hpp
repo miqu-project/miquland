@@ -111,6 +111,7 @@ private:
     static int handle_config_reload_timer(void* data);
     static int handle_shutdown_timer(void* data);
     void setup_config_watcher();
+    void update_config_watches();
     void update_sourced_file_watches();
 
     struct wl_display* m_wl_display = nullptr;
@@ -162,6 +163,8 @@ private:
     int m_inotify_fd = -1;
     int m_inotify_wd = -1;
     int m_inotify_file_wd = -1;
+    int m_inotify_parent_wd = -1;
+    std::string m_config_dir_target_name;
     std::vector<int> m_inotify_sourced_wds;
     struct wl_event_source* m_config_event_source = nullptr;
     struct wl_event_source* m_config_reload_timer = nullptr;

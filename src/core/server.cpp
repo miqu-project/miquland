@@ -49,6 +49,7 @@ Server::~Server() {
     m_inotify_sourced_wds.clear();
     if (m_inotify_file_wd >= 0 && m_inotify_fd >= 0) inotify_rm_watch(m_inotify_fd, m_inotify_file_wd);
     if (m_inotify_wd >= 0 && m_inotify_fd >= 0) inotify_rm_watch(m_inotify_fd, m_inotify_wd);
+    if (m_inotify_parent_wd >= 0 && m_inotify_fd >= 0) inotify_rm_watch(m_inotify_fd, m_inotify_parent_wd);
     if (m_inotify_fd >= 0) ::close(m_inotify_fd);
 
     if (m_ipc_server) {
@@ -302,21 +303,52 @@ void Server::setup_config_watcher() {
     m_inotify_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
     if (m_inotify_fd < 0) return;
 
-    std::string config_dir = Config::get_config_dir_path();
-    m_inotify_wd = inotify_add_watch(m_inotify_fd, config_dir.c_str(), IN_MODIFY | IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE);
-    if (m_inotify_wd < 0) {
-        log_warn("Failed to watch config directory: " + config_dir);
-    } else {
-        log_info("Watching config directory for live reload: " + config_dir);
-    }
-
-    std::string config_file = Config::get_config_file_path();
-    m_inotify_file_wd = inotify_add_watch(m_inotify_fd, config_file.c_str(), IN_MODIFY | IN_CLOSE_WRITE);
-
+    update_config_watches();
     update_sourced_file_watches();
 
     m_config_event_source = wl_event_loop_add_fd(m_wl_event_loop, m_inotify_fd, WL_EVENT_READABLE, handle_config_inotify, this);
     m_config_reload_timer = wl_event_loop_add_timer(m_wl_event_loop, handle_config_reload_timer, this);
+}
+
+void Server::update_config_watches() {
+    if (m_inotify_fd < 0) return;
+
+    namespace fs = std::filesystem;
+    std::string config_dir = Config::get_config_dir_path();
+    std::string config_file = Config::get_config_file_path();
+
+    // 1. If config directory exists, watch it directly
+    if (m_inotify_wd < 0 && fs::exists(config_dir)) {
+        m_inotify_wd = inotify_add_watch(m_inotify_fd, config_dir.c_str(),
+                                         IN_MODIFY | IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE);
+        if (m_inotify_wd >= 0) {
+            log_info("Watching config directory for live reload: " + config_dir);
+            // Once config directory is watched, parent watch is no longer needed
+            if (m_inotify_parent_wd >= 0) {
+                inotify_rm_watch(m_inotify_fd, m_inotify_parent_wd);
+                m_inotify_parent_wd = -1;
+            }
+        }
+    }
+
+    // 2. If config directory does not exist yet (e.g. fresh session before --init-config),
+    // watch existing parent directory (e.g. ~/.config) for creation of config_dir
+    if (m_inotify_wd < 0 && m_inotify_parent_wd < 0) {
+        fs::path p(config_dir);
+        fs::path parent = p.parent_path();
+        m_config_dir_target_name = p.filename().string();
+        if (fs::exists(parent)) {
+            m_inotify_parent_wd = inotify_add_watch(m_inotify_fd, parent.c_str(), IN_CREATE | IN_MOVED_TO);
+            if (m_inotify_parent_wd >= 0) {
+                log_info("Watching parent config directory for initialization: " + parent.string());
+            }
+        }
+    }
+
+    // 3. If config file exists, watch it directly
+    if (m_inotify_file_wd < 0 && fs::exists(config_file)) {
+        m_inotify_file_wd = inotify_add_watch(m_inotify_fd, config_file.c_str(), IN_MODIFY | IN_CLOSE_WRITE);
+    }
 }
 
 void Server::update_sourced_file_watches() {
@@ -356,10 +388,26 @@ int Server::handle_config_inotify(int fd, uint32_t mask, void* data) {
             }
             if (is_sourced) {
                 should_reload = true;
+            } else if (server->m_inotify_parent_wd >= 0 && event->wd == server->m_inotify_parent_wd) {
+                if (event->len > 0 && event->name == server->m_config_dir_target_name) {
+                    server->update_config_watches();
+                    should_reload = true;
+                }
             } else if (server->m_inotify_file_wd >= 0 && event->wd == server->m_inotify_file_wd) {
                 should_reload = true;
                 if (event->mask & (IN_IGNORED | IN_DELETE_SELF | IN_MOVE_SELF)) {
                     server->m_inotify_file_wd = -1;
+                }
+            } else if (server->m_inotify_wd >= 0 && event->wd == server->m_inotify_wd) {
+                if (event->mask & (IN_IGNORED | IN_DELETE_SELF | IN_MOVE_SELF)) {
+                    server->m_inotify_wd = -1;
+                }
+                if (event->len > 0) {
+                    std::string filename(event->name);
+                    if ((filename == "miquland.conf" || filename.ends_with(".conf")) &&
+                        !filename.starts_with(".") && !filename.ends_with("~")) {
+                        should_reload = true;
+                    }
                 }
             } else if (event->len > 0) {
                 std::string filename(event->name);
@@ -371,11 +419,8 @@ int Server::handle_config_inotify(int fd, uint32_t mask, void* data) {
         }
     }
 
-    // Re-arm file watch if it was removed by atomic editor rewrite
-    if (server->m_inotify_file_wd < 0 && server->m_inotify_fd >= 0) {
-        std::string config_file = Config::get_config_file_path();
-        server->m_inotify_file_wd = inotify_add_watch(server->m_inotify_fd, config_file.c_str(), IN_MODIFY | IN_CLOSE_WRITE);
-    }
+    // Re-arm directory and file watches
+    server->update_config_watches();
 
     if (should_reload) {
         // Debounce: wait 250ms for rapid inotify events / editor write flushes to settle
@@ -396,6 +441,7 @@ int Server::handle_config_reload_timer(void* data) {
 }
 
 void Server::reload_config() {
+    update_config_watches();
     Config::get().load();
     update_sourced_file_watches();
     sync_blur_config();
