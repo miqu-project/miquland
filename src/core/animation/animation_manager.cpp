@@ -46,9 +46,18 @@ void AnimationManager::schedule_workspace_transition(
     cancel_for_workspace(from_ws);
     cancel_for_workspace(to_ws);
 
-    // Cancel any in-flight workspace node animations to prevent stale lingering animations
+    // Cancel any in-flight workspace node animations and reset their positions to rest (0, 0)
     for (auto it = m_animations.begin(); it != m_animations.end(); ) {
         if (it->bound_workspace_id != 0) {
+            if (it->node) {
+                wlr_scene_node_set_position(it->node, 0, 0);
+            }
+            if (m_server && m_server->get_workspace_manager()) {
+                Workspace* old_ws = m_server->get_workspace_manager()->get_workspace(it->bound_workspace_id);
+                if (old_ws && old_ws != to_ws && old_ws != from_ws) {
+                    old_ws->set_visible(false);
+                }
+            }
             it = m_animations.erase(it);
         } else {
             ++it;
@@ -1282,10 +1291,27 @@ void AnimationManager::cancel_for_view(View* view) {
     });
     m_animations.erase(it_node, m_animations.end());
 
-    auto it_view = std::remove_if(m_view_animations.begin(), m_view_animations.end(), [view](const ViewAnimation& a) {
-        return a.view == view;
-    });
-    m_view_animations.erase(it_view, m_view_animations.end());
+    bool had_view_anim = false;
+    for (auto it = m_view_animations.begin(); it != m_view_animations.end(); ) {
+        if (it->view == view) {
+            had_view_anim = true;
+            it = m_view_animations.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    if (had_view_anim && view->is_mapped()) {
+        std::string app_id = view->get_app_id();
+        std::string title = view->get_title();
+        float target_opacity = view->is_focused()
+            ? Config::get().get_window_opacity_active()
+            : Config::get().get_window_opacity_inactive();
+        target_opacity = Config::get().get_rule_opacity(app_id, title, target_opacity);
+        target_opacity = std::clamp(target_opacity, 0.0f, 1.0f);
+        view->apply_animation_transform(1.0, target_opacity);
+        view->update_frame();
+    }
 
     for (auto it = m_geometry_animations.begin(); it != m_geometry_animations.end(); ) {
         if (it->view == view) {
@@ -1319,10 +1345,16 @@ void AnimationManager::cancel_for_workspace(Workspace* ws) {
         m_swipe_state.delta_x = 0.0;
     }
     size_t ws_id = ws->get_id();
-    auto it = std::remove_if(m_animations.begin(), m_animations.end(), [ws_id](const NodeAnimation& a) {
-        return a.bound_workspace_id == ws_id;
-    });
-    m_animations.erase(it, m_animations.end());
+    for (auto it = m_animations.begin(); it != m_animations.end(); ) {
+        if (it->bound_workspace_id == ws_id) {
+            if (it->node) {
+                wlr_scene_node_set_position(it->node, 0, 0);
+            }
+            it = m_animations.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void AnimationManager::cancel_for_node(struct wlr_scene_node* node) {
@@ -1348,8 +1380,24 @@ void AnimationManager::clear() {
         m_swipe_state.current_ws = nullptr;
         m_swipe_state.target_ws = nullptr;
     }
+    for (auto& a : m_animations) {
+        if (a.node) {
+            wlr_scene_node_set_position(a.node, 0, 0);
+        }
+    }
     m_animations.clear();
+    for (auto& a : m_view_animations) {
+        if (a.view && a.view->is_mapped()) {
+            a.view->apply_animation_transform(1.0, a.target_opacity);
+            a.view->update_frame();
+        }
+    }
     m_view_animations.clear();
+    for (auto& a : m_geometry_animations) {
+        if (a.view && a.view->is_mapped()) {
+            a.view->finish_geometry_animation(a.target_x, a.target_y, a.target_w, a.target_h);
+        }
+    }
     m_geometry_animations.clear();
     m_layer_animations.clear();
     for (auto& a : m_closing_layer_animations) {
@@ -1359,6 +1407,20 @@ void AnimationManager::clear() {
         }
     }
     m_closing_layer_animations.clear();
+}
+
+static inline float calculate_anim_progress(double now_ms, double start_time_ms, double duration_ms, bool& out_completed) {
+    if (duration_ms <= 0.0) {
+        out_completed = true;
+        return 1.0f;
+    }
+    double elapsed = (now_ms >= start_time_ms) ? (now_ms - start_time_ms) : 0.0;
+    float p = static_cast<float>(elapsed / duration_ms);
+    if (p >= 1.0f) {
+        out_completed = true;
+        return 1.0f;
+    }
+    return p;
 }
 
 void AnimationManager::tick(double now_ms) {
@@ -1377,17 +1439,7 @@ void AnimationManager::tick(double now_ms) {
             continue;
         }
 
-        double elapsed = (now_ms >= anim.start_time_ms) ? (now_ms - anim.start_time_ms) : 0.0;
-        float progress = 1.0f;
-        if (anim.duration_ms > 0.0) {
-            progress = static_cast<float>(elapsed / anim.duration_ms);
-        }
-
-        if (progress >= 1.0f) {
-            progress = 1.0f;
-            anim.completed = true;
-        }
-
+        float progress = calculate_anim_progress(now_ms, anim.start_time_ms, anim.duration_ms, anim.completed);
         float eased = anim.easing_fn ? anim.easing_fn(progress) : progress;
         int cur_x = anim.start_x + static_cast<int>(std::round(static_cast<float>(anim.target_x - anim.start_x) * eased));
         int cur_y = anim.start_y + static_cast<int>(std::round(static_cast<float>(anim.target_y - anim.start_y) * eased));
@@ -1411,17 +1463,7 @@ void AnimationManager::tick(double now_ms) {
             continue;
         }
 
-        double elapsed = (now_ms >= anim.start_time_ms) ? (now_ms - anim.start_time_ms) : 0.0;
-        float progress = 1.0f;
-        if (anim.duration_ms > 0.0) {
-            progress = static_cast<float>(elapsed / anim.duration_ms);
-        }
-
-        if (progress >= 1.0f) {
-            progress = 1.0f;
-            anim.completed = true;
-        }
-
+        float progress = calculate_anim_progress(now_ms, anim.start_time_ms, anim.duration_ms, anim.completed);
         float eased = anim.easing_fn ? anim.easing_fn(progress) : progress;
         int cur_x = anim.start_x + static_cast<int>(std::round(static_cast<float>(anim.target_x - anim.start_x) * eased));
         int cur_y = anim.start_y + static_cast<int>(std::round(static_cast<float>(anim.target_y - anim.start_y) * eased));
@@ -1447,33 +1489,18 @@ void AnimationManager::tick(double now_ms) {
             continue;
         }
 
-        double elapsed = (now_ms >= anim.start_time_ms) ? (now_ms - anim.start_time_ms) : 0.0;
-
-        // 1. Scale interpolation
-        float scale_progress = 1.0f;
-        if (anim.scale_duration_ms > 0.0) {
-            scale_progress = static_cast<float>(elapsed / anim.scale_duration_ms);
-        }
-        if (scale_progress >= 1.0f) {
-            scale_progress = 1.0f;
-        }
+        bool scale_done = false, fade_done = false;
+        float scale_progress = calculate_anim_progress(now_ms, anim.start_time_ms, anim.scale_duration_ms, scale_done);
         float scale_eased = anim.scale_easing_fn ? anim.scale_easing_fn(scale_progress) : scale_progress;
         double cur_scale = anim.start_scale + (anim.target_scale - anim.start_scale) * static_cast<double>(scale_eased);
 
-        // 2. Fade interpolation
-        float fade_progress = 1.0f;
-        if (anim.fade_duration_ms > 0.0) {
-            fade_progress = static_cast<float>(elapsed / anim.fade_duration_ms);
-        }
-        if (fade_progress >= 1.0f) {
-            fade_progress = 1.0f;
-        }
+        float fade_progress = calculate_anim_progress(now_ms, anim.start_time_ms, anim.fade_duration_ms, fade_done);
         float fade_eased = anim.fade_easing_fn ? anim.fade_easing_fn(fade_progress) : fade_progress;
         float cur_opacity = anim.start_opacity + (anim.target_opacity - anim.start_opacity) * fade_eased;
 
         anim.view->apply_animation_transform(cur_scale, cur_opacity);
 
-        if (scale_progress >= 1.0f && fade_progress >= 1.0f) {
+        if (scale_done && fade_done) {
             anim.completed = true;
             if (anim.on_complete) {
                 completions.push_back(anim.on_complete);
@@ -1493,23 +1520,11 @@ void AnimationManager::tick(double now_ms) {
             continue;
         }
 
-        double elapsed = (now_ms >= anim.start_time_ms) ? (now_ms - anim.start_time_ms) : 0.0;
-        float progress = 1.0f;
-        if (anim.duration_ms > 0.0) {
-            progress = static_cast<float>(elapsed / anim.duration_ms);
-        }
-        if (progress >= 1.0f) {
-            progress = 1.0f;
-        }
+        bool motion_done = false, fade_done = false;
+        float progress = calculate_anim_progress(now_ms, anim.start_time_ms, anim.duration_ms, motion_done);
         float eased = anim.easing_fn ? anim.easing_fn(progress) : progress;
 
-        float fade_progress = 1.0f;
-        if (anim.fade_duration_ms > 0.0) {
-            fade_progress = static_cast<float>(elapsed / anim.fade_duration_ms);
-        }
-        if (fade_progress >= 1.0f) {
-            fade_progress = 1.0f;
-        }
+        float fade_progress = calculate_anim_progress(now_ms, anim.start_time_ms, anim.fade_duration_ms, fade_done);
         float fade_eased = anim.fade_easing_fn ? anim.fade_easing_fn(fade_progress) : fade_progress;
 
         int cur_ox = anim.start_offset_x + static_cast<int>(std::round(static_cast<float>(anim.target_offset_x - anim.start_offset_x) * eased));
@@ -1520,7 +1535,7 @@ void AnimationManager::tick(double now_ms) {
 
         anim.surface->apply_animation_transform(cur_ox, cur_oy, cur_scale_x, cur_scale_y, cur_opacity, anim.center_anchor);
 
-        if (progress >= 1.0f && fade_progress >= 1.0f) {
+        if (motion_done && fade_done) {
             anim.completed = true;
             if (anim.on_complete) {
                 completions.push_back(anim.on_complete);
@@ -1540,13 +1555,11 @@ void AnimationManager::tick(double now_ms) {
             continue;
         }
 
-        double elapsed = (now_ms >= anim.start_time_ms) ? (now_ms - anim.start_time_ms) : 0.0;
-        float progress = (anim.duration_ms > 0.0) ? static_cast<float>(elapsed / anim.duration_ms) : 1.0f;
-        if (progress >= 1.0f) progress = 1.0f;
+        bool motion_done = false, fade_done = false;
+        float progress = calculate_anim_progress(now_ms, anim.start_time_ms, anim.duration_ms, motion_done);
         float eased = anim.easing_fn ? anim.easing_fn(progress) : progress;
 
-        float fade_progress = (anim.fade_duration_ms > 0.0) ? static_cast<float>(elapsed / anim.fade_duration_ms) : 1.0f;
-        if (fade_progress >= 1.0f) fade_progress = 1.0f;
+        float fade_progress = calculate_anim_progress(now_ms, anim.start_time_ms, anim.fade_duration_ms, fade_done);
         float fade_eased = anim.fade_easing_fn ? anim.fade_easing_fn(fade_progress) : fade_progress;
 
         int cur_ox = anim.start_offset_x + static_cast<int>(std::round(static_cast<float>(anim.target_offset_x - anim.start_offset_x) * eased));

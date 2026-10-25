@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <cstdint>
 #include <algorithm>
 #include <xkbcommon/xkbcommon.h>
@@ -118,6 +119,18 @@ public:
         return m_window_animation_fade_out_curve.empty() ? m_window_animation_close_curve : m_window_animation_fade_out_curve;
     }
     void set_window_animation_fade_out_curve(const std::string& curve) { m_window_animation_fade_out_curve = curve; }
+
+    struct CustomBezier {
+        float x1 = 0.0f;
+        float y1 = 0.0f;
+        float x2 = 1.0f;
+        float y2 = 1.0f;
+    };
+
+    void add_custom_bezier(const std::string& name, float x1, float y1, float x2, float y2) {
+        m_custom_beziers[name] = { x1, y1, x2, y2 };
+    }
+    const std::unordered_map<std::string, CustomBezier>& get_custom_beziers() const { return m_custom_beziers; }
 
     double get_window_animation_open_scale() const { return m_window_animation_open_scale; }
     void set_window_animation_open_scale(double s) { m_window_animation_open_scale = std::clamp(s, 0.1, 1.0); }
@@ -350,6 +363,11 @@ public:
         bool blur_enabled_specified = false;
         bool blur_bottom_only = false;
         bool blur_bottom_only_specified = false;
+        int blur_corner_radius = -1;
+        float blur_alpha = -1.0f;
+        float blur_strength = -1.0f;
+        bool blur_ignore_opacity = false;
+        bool blur_ignore_opacity_specified = false;
     };
 
     bool is_layer_animations_enabled() const { return m_layer_animations_enabled; }
@@ -475,6 +493,7 @@ public:
     bool get_window_shadow_offset(const std::string& app_id, const std::string& title, double& out_ox, double& out_oy) const;
     std::string get_window_shadow_color(const std::string& app_id, const std::string& title, const std::string& default_col) const;
     int get_window_shadow_corner_radius(const std::string& app_id, const std::string& title, int default_val) const;
+    bool is_window_blur_enabled(const std::string& app_id, const std::string& title, bool default_val) const;
 
     const std::vector<MonitorRule>& get_monitor_rules() const { return m_monitor_rules; }
     void add_monitor_rule(const MonitorRule& rule) { m_monitor_rules.push_back(rule); }
@@ -532,6 +551,8 @@ private:
                                 std::vector<WindowRule>& file_rules, bool& has_rules_in_file);
     void parse_binds_entry(const std::string& key, const std::string& value,
                            std::vector<KeyBinding>& file_bindings, bool& has_bindings_in_file);
+    void parse_bezier_entry(const std::string& value);
+    void parse_animation_directive(const std::string& value);
 
     std::vector<MonitorRule> m_monitor_rules;
     std::vector<std::string> m_exec_commands;
@@ -540,41 +561,42 @@ private:
     bool m_smart_gaps = false;
     bool m_animations_enabled = true;
     bool m_workspace_animations_enabled = true;
-    int m_workspace_animation_duration_ms = 200;
-    std::string m_workspace_animation_curve = "ease_out_cubic";
+    int m_workspace_animation_duration_ms = 280;
+    std::string m_workspace_animation_curve = "ease_in_out_cubic";
     bool m_window_animations_enabled = true;
     bool m_window_open_animation_enabled = true;
     bool m_window_close_animation_enabled = true;
-    int m_window_animation_duration_ms = 180;
-    int m_window_animation_open_duration_ms = 180;
+    int m_window_animation_duration_ms = 220;
+    int m_window_animation_open_duration_ms = 220;
     int m_window_animation_close_duration_ms = 140;
-    std::string m_window_animation_curve = "default";
-    std::string m_window_animation_open_curve = "default";
-    std::string m_window_animation_close_curve = "smooth_out";
-    double m_window_animation_open_scale = 0.85;
-    double m_window_animation_close_scale = 0.85;
+    std::string m_window_animation_curve = "ease_out_cubic";
+    std::string m_window_animation_open_curve = "ease_out_cubic";
+    std::string m_window_animation_close_curve = "smooth_in";
+    double m_window_animation_open_scale = 0.95;
+    double m_window_animation_close_scale = 0.95;
     bool m_window_open_fade_enabled = true;
     bool m_window_close_fade_enabled = true;
-    int m_window_animation_fade_in_duration_ms = 0;
-    int m_window_animation_fade_out_duration_ms = 0;
+    int m_window_animation_fade_in_duration_ms = 180;
+    int m_window_animation_fade_out_duration_ms = 120;
     std::string m_window_animation_fade_in_curve = "";
     std::string m_window_animation_fade_out_curve = "";
     bool m_layer_animations_enabled = true;
     bool m_layer_animation_open_enabled = true;
     bool m_layer_animation_close_enabled = true;
     int m_layer_animation_duration_ms = 200;
-    int m_layer_animation_open_duration_ms = -1;
-    int m_layer_animation_close_duration_ms = -1;
+    int m_layer_animation_open_duration_ms = 200;
+    int m_layer_animation_close_duration_ms = 150;
     std::string m_layer_animation_curve = "ease_out_cubic";
-    std::string m_layer_animation_open_curve = "";
-    std::string m_layer_animation_close_curve = "";
-    double m_layer_animation_popin_scale = 0.90;
+    std::string m_layer_animation_open_curve = "ease_out_cubic";
+    std::string m_layer_animation_close_curve = "smooth_in";
+    double m_layer_animation_popin_scale = 0.95;
     bool m_layer_animation_fade_enabled = true;
-    int m_layer_animation_fade_in_duration_ms = 0;
-    int m_layer_animation_fade_out_duration_ms = 0;
+    int m_layer_animation_fade_in_duration_ms = 160;
+    int m_layer_animation_fade_out_duration_ms = 120;
     std::string m_layer_animation_fade_in_curve = "";
     std::string m_layer_animation_fade_out_curve = "";
     std::vector<LayerRule> m_layer_rules;
+    std::unordered_map<std::string, CustomBezier> m_custom_beziers;
 
     bool m_xwayland_force_zero_scaling = false;
     std::string m_cursor_theme = "";

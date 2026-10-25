@@ -140,16 +140,28 @@ void LayerSurface::update_blur() {
         Config::LayerRule rule = Config::get().get_layer_rule(ns);
         wlr_scene_blur_set_should_only_blur_bottom_layer(m_blur_node, rule.blur_bottom_only);
 
-        // Find the scene buffer for this layer surface and hook transparency mask
-        struct wlr_scene_buffer* surf_buf = nullptr;
-        wlr_scene_node_for_each_buffer(&m_scene_layer_surface->tree->node,
-            [](struct wlr_scene_buffer* buffer, int sx, int sy, void* user_data) {
-                auto** out = static_cast<struct wlr_scene_buffer**>(user_data);
-                if (!*out) *out = buffer;
-            }, &surf_buf);
+        int r = (rule.blur_corner_radius >= 0) ? rule.blur_corner_radius :
+                ((rule.shadow_corner_radius >= 0) ? rule.shadow_corner_radius : 0);
+        wlr_scene_blur_set_corner_radius(m_blur_node, r);
 
-        if (surf_buf) {
+        float alpha = (rule.blur_alpha >= 0.0f) ? rule.blur_alpha : 1.0f;
+        wlr_scene_blur_set_alpha(m_blur_node, alpha);
+
+        float strength = (rule.blur_strength >= 0.0f) ? rule.blur_strength : 1.0f;
+        wlr_scene_blur_set_strength(m_blur_node, strength);
+
+        if (!rule.blur_ignore_opacity) {
+            // Find the scene buffer for this layer surface and hook transparency mask
+            struct wlr_scene_buffer* surf_buf = nullptr;
+            wlr_scene_node_for_each_buffer(&m_scene_layer_surface->tree->node,
+                [](struct wlr_scene_buffer* buffer, int sx, int sy, void* user_data) {
+                    auto** out = static_cast<struct wlr_scene_buffer**>(user_data);
+                    if (!*out) *out = buffer;
+                }, &surf_buf);
+
             wlr_scene_blur_set_transparency_mask_source(m_blur_node, surf_buf);
+        } else {
+            wlr_scene_blur_set_transparency_mask_source(m_blur_node, nullptr);
         }
     }
 }
@@ -340,7 +352,15 @@ void LayerSurface::apply_animation_transform(int offset_x, int offset_y, double 
             int bw = std::max(1, static_cast<int>(std::round(static_cast<double>(base_w) * scale_x)));
             int bh = std::max(1, static_cast<int>(std::round(static_cast<double>(base_h) * scale_y)));
             wlr_scene_blur_set_size(m_blur_node, bw, bh);
-            wlr_scene_blur_set_alpha(m_blur_node, safe_opacity);
+
+            Config::LayerRule rule = Config::get().get_layer_rule(m_namespace);
+            float base_alpha = (rule.blur_alpha >= 0.0f) ? rule.blur_alpha : 1.0f;
+            wlr_scene_blur_set_alpha(m_blur_node, safe_opacity * base_alpha);
+
+            int r = (rule.blur_corner_radius >= 0) ? rule.blur_corner_radius :
+                    ((rule.shadow_corner_radius >= 0) ? rule.shadow_corner_radius : 0);
+            int scaled_r = static_cast<int>(std::round(static_cast<double>(r) * std::min(scale_x, scale_y)));
+            wlr_scene_blur_set_corner_radius(m_blur_node, scaled_r);
         }
     }
 

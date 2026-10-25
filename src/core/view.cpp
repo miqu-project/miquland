@@ -720,14 +720,10 @@ void View::update_frame() {
 }
 
 void View::update_blur() {
-    if (!Config::get().is_blur_enabled()) {
-        if (m_blur_node) {
-            wlr_scene_node_set_enabled(&m_blur_node->node, false);
-        }
-        return;
-    }
-
-    if (!m_mapped || m_width <= 0 || m_height <= 0 || m_is_fullscreen) {
+    std::string app_id = get_app_id();
+    std::string title = get_title();
+    bool enabled = Config::get().is_window_blur_enabled(app_id, title, Config::get().is_blur_enabled());
+    if (!enabled || !m_mapped || m_width <= 0 || m_height <= 0 || m_is_fullscreen) {
         if (m_blur_node) {
             wlr_scene_node_set_enabled(&m_blur_node->node, false);
         }

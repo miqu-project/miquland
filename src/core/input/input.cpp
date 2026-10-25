@@ -456,6 +456,10 @@ void InputManager::set_cursor_icon(const char* name) {
 void InputManager::begin_interactive(View* view, CursorMode mode, uint32_t edges) {
     if (!view || view->is_fullscreen() || view->is_override_redirect()) return;
 
+    if (m_server && m_server->get_animation_manager()) {
+        m_server->get_animation_manager()->cancel_for_view(view);
+    }
+
     m_grabbed_view = view;
     m_grabbed_view_was_tiled = !view->is_floating();
     m_cursor_mode = mode;
