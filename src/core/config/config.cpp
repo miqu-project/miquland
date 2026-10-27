@@ -198,7 +198,7 @@ void Config::set_defaults() {
     m_dwindle_split_focus = false;
     m_dwindle_split_width_multiplier = 1.2;
     m_dwindle_preserve_split = true;
-    m_dwindle_smart_split = false;
+    m_dwindle_smart_split = true;
     m_workspace_cycle = false;
     m_vfr_enabled = true;
 }

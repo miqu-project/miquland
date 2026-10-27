@@ -86,32 +86,7 @@ SplitDecision decide_split(
 {
     SplitDecision result;
 
-    if (Config::get().is_dwindle_smart_split_enabled() && cursor_pos &&
-        target_box.width > 0 && target_box.height > 0)
-    {
-        double cx = cursor_pos->first;
-        double cy = cursor_pos->second;
-
-        if (cx >= target_box.x && cx <= target_box.x + target_box.width &&
-            cy >= target_box.y && cy <= target_box.y + target_box.height)
-        {
-            double rel_x = (cx - target_box.x) / static_cast<double>(target_box.width);
-            double rel_y = (cy - target_box.y) / static_cast<double>(target_box.height);
-
-            double dx = rel_x - 0.5;
-            double dy = rel_y - 0.5;
-
-            if (std::abs(dx) >= std::abs(dy)) {
-                result.split = DwindleSplit::Horizontal;
-                result.new_view_is_first = (dx < 0);
-            } else {
-                result.split = DwindleSplit::Vertical;
-                result.new_view_is_first = (dy < 0);
-            }
-            return result;
-        }
-    }
-
+    // 1. Orientation (Horizontal vs Vertical) is strictly decided by aspect ratio
     double multiplier = Config::get().get_dwindle_split_width_multiplier();
     if (target_box.width > 0 && target_box.height > 0) {
         result.split = (static_cast<double>(target_box.width) >= static_cast<double>(target_box.height) * multiplier)
@@ -124,7 +99,31 @@ SplitDecision decide_split(
     } else {
         result.split = DwindleSplit::Horizontal;
     }
+
+    // 2. Default: new view is placed second (Right for horizontal, Bottom for vertical)
     result.new_view_is_first = false;
+
+    // 3. When smart_split is enabled, cursor position within the target tile decides
+    // which side the new window occupies (Left vs Right on horizontal, Top vs Bottom on vertical)
+    if (Config::get().is_dwindle_smart_split_enabled() && cursor_pos &&
+        target_box.width > 0 && target_box.height > 0)
+    {
+        double cx = cursor_pos->first;
+        double cy = cursor_pos->second;
+
+        if (cx >= target_box.x && cx <= target_box.x + target_box.width &&
+            cy >= target_box.y && cy <= target_box.y + target_box.height)
+        {
+            if (result.split == DwindleSplit::Horizontal) {
+                double mid_x = target_box.x + (target_box.width / 2.0);
+                result.new_view_is_first = (cx < mid_x);
+            } else {
+                double mid_y = target_box.y + (target_box.height / 2.0);
+                result.new_view_is_first = (cy < mid_y);
+            }
+        }
+    }
+
     return result;
 }
 

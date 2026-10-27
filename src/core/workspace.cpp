@@ -73,17 +73,19 @@ std::pair<View*, std::optional<std::pair<double, double>>> Workspace::resolve_dw
         }
     }
 
-    if (Config::get().is_dwindle_split_focus_enabled()) {
-        target_focus = m_server ? m_server->get_focused_view() : nullptr;
-        if (target_focus && target_focus->get_workspace() != this) {
-            target_focus = nullptr;
-        }
-    } else if (Config::get().is_dwindle_smart_split_enabled() && cursor_pos) {
+    if (Config::get().is_dwindle_smart_split_enabled() && cursor_pos) {
         double sx = 0.0, sy = 0.0;
         struct wlr_surface* surface = nullptr;
         View* hover_v = m_server ? m_server->view_at(cursor_pos->first, cursor_pos->second, &surface, &sx, &sy) : nullptr;
         if (hover_v && hover_v->get_workspace() == this && !hover_v->is_floating()) {
             target_focus = hover_v;
+        }
+    }
+
+    if (!target_focus && Config::get().is_dwindle_split_focus_enabled()) {
+        target_focus = m_server ? m_server->get_focused_view() : nullptr;
+        if (target_focus && target_focus->get_workspace() != this) {
+            target_focus = nullptr;
         }
     }
 

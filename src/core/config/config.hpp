@@ -627,7 +627,7 @@ private:
     bool m_dwindle_split_focus = false;
     double m_dwindle_split_width_multiplier = 1.2;
     bool m_dwindle_preserve_split = true;
-    bool m_dwindle_smart_split = false;
+    bool m_dwindle_smart_split = true;
     bool m_workspace_cycle = true;
     bool m_vfr_enabled = true;
     bool m_auto_float_fixed_size = true;
