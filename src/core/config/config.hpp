@@ -175,6 +175,18 @@ public:
     double get_default_split_ratio() const { return m_default_split_ratio; }
     void set_default_split_ratio(double ratio) { m_default_split_ratio = std::clamp(ratio, 0.1, 0.9); }
 
+    bool is_dwindle_split_focus_enabled() const { return m_dwindle_split_focus; }
+    void set_dwindle_split_focus_enabled(bool enabled) { m_dwindle_split_focus = enabled; }
+
+    double get_dwindle_split_width_multiplier() const { return m_dwindle_split_width_multiplier; }
+    void set_dwindle_split_width_multiplier(double mult) { m_dwindle_split_width_multiplier = std::clamp(mult, 0.5, 3.0); }
+
+    bool is_dwindle_preserve_split_enabled() const { return m_dwindle_preserve_split; }
+    void set_dwindle_preserve_split_enabled(bool enabled) { m_dwindle_preserve_split = enabled; }
+
+    bool is_dwindle_smart_split_enabled() const { return m_dwindle_smart_split; }
+    void set_dwindle_smart_split_enabled(bool enabled) { m_dwindle_smart_split = enabled; }
+
     bool is_workspace_cycle_enabled() const { return m_workspace_cycle; }
     void set_workspace_cycle_enabled(bool enabled) { m_workspace_cycle = enabled; }
 
@@ -270,13 +282,23 @@ public:
     void set_shadow_offset(double x, double y) { m_shadow_offset_x = x; m_shadow_offset_y = y; }
 
     enum class LayoutMode {
-        Spiral, // Recursive binary space partitioning (Fibonacci / BSP)
-        Stack   // Main prominent window on left, vertical stack on right
+        Dwindle,        // Binary Space Partitioning (focus-splitting tree)
+        Stack,          // Master-and-stack column layout (master left, vertical stack right)
+        BStack,         // Bottom-stack layout (master top, horizontal stack bottom)
+        CenteredMaster, // Centered master window flanked by left and right stacks
+        Spiral,         // Fibonacci spiral alternating splits
+        Columns,        // Equal vertical column partition
+        Grid,           // Dynamic N x M grid matrix
+        Monocle         // Full-screen focused window layout
     };
+
+    static std::string layout_mode_to_string(LayoutMode mode);
+    static LayoutMode string_to_layout_mode(const std::string& str);
 
     LayoutMode get_layout_mode() const { return m_layout_mode; }
     void set_layout_mode(LayoutMode mode) { m_layout_mode = mode; }
-    void toggle_layout_mode() { m_layout_mode = (m_layout_mode == LayoutMode::Spiral) ? LayoutMode::Stack : LayoutMode::Spiral; }
+    void cycle_layout_mode(bool reverse = false);
+    void toggle_layout_mode() { cycle_layout_mode(false); }
 
     int get_space_between_windows() const { return m_space_between_windows; }
     void set_space_between_windows(int space) { m_space_between_windows = space; }
@@ -561,40 +583,40 @@ private:
     bool m_smart_gaps = false;
     bool m_animations_enabled = true;
     bool m_workspace_animations_enabled = true;
-    int m_workspace_animation_duration_ms = 280;
-    std::string m_workspace_animation_curve = "ease_in_out_cubic";
+    int m_workspace_animation_duration_ms = 500;
+    std::string m_workspace_animation_curve = "smooth_slide";
     bool m_window_animations_enabled = true;
     bool m_window_open_animation_enabled = true;
     bool m_window_close_animation_enabled = true;
-    int m_window_animation_duration_ms = 220;
-    int m_window_animation_open_duration_ms = 220;
-    int m_window_animation_close_duration_ms = 140;
-    std::string m_window_animation_curve = "ease_out_cubic";
-    std::string m_window_animation_open_curve = "ease_out_cubic";
+    int m_window_animation_duration_ms = 420;
+    int m_window_animation_open_duration_ms = 420;
+    int m_window_animation_close_duration_ms = 250;
+    std::string m_window_animation_curve = "smooth_pop";
+    std::string m_window_animation_open_curve = "smooth_pop";
     std::string m_window_animation_close_curve = "smooth_in";
-    double m_window_animation_open_scale = 0.95;
-    double m_window_animation_close_scale = 0.95;
+    double m_window_animation_open_scale = 0.75;
+    double m_window_animation_close_scale = 0.85;
     bool m_window_open_fade_enabled = true;
     bool m_window_close_fade_enabled = true;
-    int m_window_animation_fade_in_duration_ms = 180;
-    int m_window_animation_fade_out_duration_ms = 120;
-    std::string m_window_animation_fade_in_curve = "";
-    std::string m_window_animation_fade_out_curve = "";
+    int m_window_animation_fade_in_duration_ms = 320;
+    int m_window_animation_fade_out_duration_ms = 200;
+    std::string m_window_animation_fade_in_curve = "ease_out_cubic";
+    std::string m_window_animation_fade_out_curve = "smooth_in";
     bool m_layer_animations_enabled = true;
     bool m_layer_animation_open_enabled = true;
     bool m_layer_animation_close_enabled = true;
-    int m_layer_animation_duration_ms = 200;
-    int m_layer_animation_open_duration_ms = 200;
-    int m_layer_animation_close_duration_ms = 150;
-    std::string m_layer_animation_curve = "ease_out_cubic";
-    std::string m_layer_animation_open_curve = "ease_out_cubic";
+    int m_layer_animation_duration_ms = 350;
+    int m_layer_animation_open_duration_ms = 350;
+    int m_layer_animation_close_duration_ms = 220;
+    std::string m_layer_animation_curve = "smooth_pop";
+    std::string m_layer_animation_open_curve = "smooth_pop";
     std::string m_layer_animation_close_curve = "smooth_in";
-    double m_layer_animation_popin_scale = 0.95;
+    double m_layer_animation_popin_scale = 0.75;
     bool m_layer_animation_fade_enabled = true;
-    int m_layer_animation_fade_in_duration_ms = 160;
-    int m_layer_animation_fade_out_duration_ms = 120;
-    std::string m_layer_animation_fade_in_curve = "";
-    std::string m_layer_animation_fade_out_curve = "";
+    int m_layer_animation_fade_in_duration_ms = 280;
+    int m_layer_animation_fade_out_duration_ms = 180;
+    std::string m_layer_animation_fade_in_curve = "ease_out_cubic";
+    std::string m_layer_animation_fade_out_curve = "smooth_in";
     std::vector<LayerRule> m_layer_rules;
     std::unordered_map<std::string, CustomBezier> m_custom_beziers;
 
@@ -602,6 +624,10 @@ private:
     std::string m_cursor_theme = "";
     int m_cursor_size = 24;
     double m_default_split_ratio = 0.5;
+    bool m_dwindle_split_focus = false;
+    double m_dwindle_split_width_multiplier = 1.2;
+    bool m_dwindle_preserve_split = true;
+    bool m_dwindle_smart_split = false;
     bool m_workspace_cycle = true;
     bool m_vfr_enabled = true;
     bool m_auto_float_fixed_size = true;
@@ -644,7 +670,7 @@ private:
     float m_blur_contrast = 0.9f;
     float m_blur_saturation = 1.1f;
     std::vector<std::string> m_blurred_layers;
-    LayoutMode m_layout_mode = LayoutMode::Spiral;
+    LayoutMode m_layout_mode = LayoutMode::Dwindle;
 
     std::string m_window_border_color_active = "#0066ff";
     std::string m_window_border_color_inactive = "#99c2ff";

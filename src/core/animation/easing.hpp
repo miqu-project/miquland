@@ -169,23 +169,29 @@ public:
 
         // Standard presets
         if (lower == "default") {
-            // Smooth pop-in curve
+            // Smooth pop-in curve with silky deceleration (Hyprland iconic profile)
             return [](float t) { return cubic_bezier(0.05f, 0.9f, 0.1f, 1.05f, t); };
         }
+        if (lower == "fluent" || lower == "smooth_slide" || lower == "glide") {
+            // Ultra-smooth workspace slide and relocation curve
+            return [](float t) { return cubic_bezier(0.1f, 1.0f, 0.1f, 1.0f, t); };
+        }
         if (lower == "spring") {
-            // High-fidelity natural physical spring (zeta = 0.68, omega_0 = 11.5 rad/s)
-            return [](float t) { return spring_oscillator(0.68f, 11.5f, t); };
+            // Natural physical harmonic spring calibrated to settle organically across full duration
+            return [](float t) { return spring_oscillator(0.72f, 5.6f, t); };
         }
         if (lower == "spring_gentle" || lower == "gentle_spring") {
-            return [](float t) { return spring_oscillator(0.82f, 10.0f, t); };
+            // Critically damped spring with pure silky deceleration and zero overshoot
+            return [](float t) { return spring_oscillator(0.85f, 4.8f, t); };
         }
         if (lower == "spring_bouncy" || lower == "bouncy_spring") {
-            return [](float t) { return spring_oscillator(0.55f, 13.0f, t); };
+            // Subtle spring bounce that settles naturally by end of duration
+            return [](float t) { return spring_oscillator(0.58f, 6.8f, t); };
         }
         if (lower == "overshoot" || lower == "popin") {
             return [](float t) { return cubic_bezier(0.05f, 0.9f, 0.1f, 1.08f, t); };
         }
-        if (lower == "smooth_out" || lower == "smoothout" || lower == "ease_out_quart") {
+        if (lower == "smooth_pop" || lower == "smooth_out" || lower == "smoothout" || lower == "ease_out_quart") {
             return [](float t) { return cubic_bezier(0.16f, 1.0f, 0.3f, 1.0f, t); };
         }
         if (lower == "smooth_in" || lower == "smoothin") {

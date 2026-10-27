@@ -2,6 +2,7 @@
 
 #include "core/common/util.hpp"
 #include "core/layout.hpp"
+#include "core/dwindle.hpp"
 #include <map>
 #include <vector>
 
@@ -43,6 +44,15 @@ public:
         m_split_mode = (m_split_mode == SplitMode::Horizontal) ? SplitMode::Vertical : SplitMode::Horizontal;
     }
 
+    DwindleTree& get_dwindle_tree() { return m_dwindle_tree; }
+    const DwindleTree& get_dwindle_tree() const { return m_dwindle_tree; }
+    bool toggle_dwindle_split(View* view) { return m_dwindle_tree.toggle_split(view); }
+    bool adjust_dwindle_split_ratio(View* view, double delta) { return m_dwindle_tree.adjust_split_ratio(view, delta); }
+    bool set_dwindle_split_ratio(View* view, double ratio) { return m_dwindle_tree.set_split_ratio(view, ratio); }
+    double get_dwindle_split_ratio(View* view) const { return m_dwindle_tree.get_split_ratio(view); }
+    DwindleSplit get_dwindle_split_direction(View* view) const { return m_dwindle_tree.get_split_direction(view); }
+    bool is_dwindle_first_child(View* view) const { return m_dwindle_tree.is_first_child(view); }
+
     double get_split_ratio() const { return m_split_ratio; }
     void set_split_ratio(double ratio) { m_split_ratio = std::clamp(ratio, 0.1, 0.9); }
 
@@ -74,6 +84,9 @@ private:
     SplitMode m_split_mode = SplitMode::Horizontal;
     double m_split_ratio = 0.5;
     double m_secondary_split_ratio = 0.5;
+    DwindleTree m_dwindle_tree;
+
+    std::pair<View*, std::optional<std::pair<double, double>>> resolve_dwindle_target() const;
 };
 
 class WorkspaceManager {
@@ -101,6 +114,8 @@ public:
     bool focus_direction(const std::string& direction);
     void focus_window_index(size_t index);
     void swap_with_main();
+    void set_layout_mode(Config::LayoutMode mode);
+    void cycle_layout_mode(bool reverse = false);
     void toggle_layout_mode();
     void toggle_active_split();
     void toggle_floating_active();

@@ -62,6 +62,34 @@ void Workspace::update_ext_state() {
     }
 }
 
+std::pair<View*, std::optional<std::pair<double, double>>> Workspace::resolve_dwindle_target() const {
+    View* target_focus = nullptr;
+    std::optional<std::pair<double, double>> cursor_pos = std::nullopt;
+
+    if (m_server && m_server->get_input_manager()) {
+        auto* cursor = m_server->get_input_manager()->get_cursor();
+        if (cursor) {
+            cursor_pos = std::make_pair(cursor->x, cursor->y);
+        }
+    }
+
+    if (Config::get().is_dwindle_split_focus_enabled()) {
+        target_focus = m_server ? m_server->get_focused_view() : nullptr;
+        if (target_focus && target_focus->get_workspace() != this) {
+            target_focus = nullptr;
+        }
+    } else if (Config::get().is_dwindle_smart_split_enabled() && cursor_pos) {
+        double sx = 0.0, sy = 0.0;
+        struct wlr_surface* surface = nullptr;
+        View* hover_v = m_server ? m_server->view_at(cursor_pos->first, cursor_pos->second, &surface, &sx, &sy) : nullptr;
+        if (hover_v && hover_v->get_workspace() == this && !hover_v->is_floating()) {
+            target_focus = hover_v;
+        }
+    }
+
+    return { target_focus, cursor_pos };
+}
+
 bool Workspace::add_view(View* view) {
     if (!view) return false;
 
@@ -80,6 +108,8 @@ bool Workspace::add_view(View* view) {
     }
 
     if (std::find(m_tiled_views.begin(), m_tiled_views.end(), view) == m_tiled_views.end()) {
+        auto [target_focus, cursor_pos] = resolve_dwindle_target();
+        m_dwindle_tree.add_view(view, target_focus, cursor_pos);
         m_tiled_views.push_back(view);
         view->set_workspace(this);
         if (view->get_scene_tree() && m_tiled_tree) {
@@ -94,6 +124,7 @@ bool Workspace::add_view(View* view) {
 bool Workspace::remove_view(View* view) {
     auto it_tile = std::find(m_tiled_views.begin(), m_tiled_views.end(), view);
     if (it_tile != m_tiled_views.end()) {
+        m_dwindle_tree.remove_view(view);
         m_tiled_views.erase(it_tile);
         view->set_workspace(nullptr);
         update_ext_state();
@@ -140,6 +171,7 @@ void Workspace::swap_with_main(View* view) {
     if (it != m_tiled_views.end()) {
         size_t idx = std::distance(m_tiled_views.begin(), it);
         if (idx > 0) {
+            m_dwindle_tree.swap_views(m_tiled_views[0], m_tiled_views[idx]);
             std::swap(m_tiled_views[0], m_tiled_views[idx]);
         }
     }
@@ -147,6 +179,7 @@ void Workspace::swap_with_main(View* view) {
 
 void Workspace::swap_views(size_t idx1, size_t idx2) {
     if (idx1 < m_tiled_views.size() && idx2 < m_tiled_views.size()) {
+        m_dwindle_tree.swap_views(m_tiled_views[idx1], m_tiled_views[idx2]);
         std::swap(m_tiled_views[idx1], m_tiled_views[idx2]);
     }
 }
@@ -156,6 +189,7 @@ bool Workspace::swap_views(View* view1, View* view2) {
     auto it1 = std::find(m_tiled_views.begin(), m_tiled_views.end(), view1);
     auto it2 = std::find(m_tiled_views.begin(), m_tiled_views.end(), view2);
     if (it1 != m_tiled_views.end() && it2 != m_tiled_views.end()) {
+        m_dwindle_tree.swap_views(view1, view2);
         std::iter_swap(it1, it2);
         auto* out_mgr = m_server->get_output_manager();
         if (out_mgr) {
@@ -171,6 +205,7 @@ void Workspace::toggle_floating(View* view) {
 
     auto it_tile = std::find(m_tiled_views.begin(), m_tiled_views.end(), view);
     if (it_tile != m_tiled_views.end()) {
+        m_dwindle_tree.remove_view(view);
         m_tiled_views.erase(it_tile);
         m_floating_views.push_back(view);
         view->set_floating(true);
@@ -188,6 +223,8 @@ void Workspace::toggle_floating(View* view) {
         auto it_float = std::find(m_floating_views.begin(), m_floating_views.end(), view);
         if (it_float != m_floating_views.end()) {
             m_floating_views.erase(it_float);
+            auto [target_focus, cursor_pos] = resolve_dwindle_target();
+            m_dwindle_tree.add_view(view, target_focus, cursor_pos);
             m_tiled_views.push_back(view);
             view->set_floating(false);
 
@@ -219,15 +256,45 @@ void Workspace::recalculate_layout(const struct wlr_box& usable_box) {
         .height = std::max(50, usable_box.height - 2 * pad),
     };
 
-    auto boxes = Layout::calculate(
-        Config::get().get_layout_mode(),
-        m_split_mode,
-        inner_box,
-        gap,
-        m_tiled_views.size(),
-        m_split_ratio,
-        m_secondary_split_ratio
-    );
+    auto mode = Config::get().get_layout_mode();
+    std::vector<struct wlr_box> boxes;
+
+    if (mode == Config::LayoutMode::Dwindle) {
+        m_dwindle_tree.sync_views(m_tiled_views);
+        auto tree_views = m_dwindle_tree.get_views();
+        if (!tree_views.empty() && tree_views.size() == m_tiled_views.size()) {
+            m_tiled_views = std::move(tree_views);
+        }
+        auto geom_map = m_dwindle_tree.calculate(inner_box, gap);
+        boxes.reserve(m_tiled_views.size());
+        for (auto* v : m_tiled_views) {
+            auto it = geom_map.find(v);
+            if (it != geom_map.end()) {
+                boxes.push_back(it->second);
+            } else {
+                boxes.push_back(inner_box);
+            }
+        }
+    } else {
+        boxes = Layout::calculate(
+            mode,
+            m_split_mode,
+            inner_box,
+            gap,
+            m_tiled_views.size(),
+            m_split_ratio,
+            m_secondary_split_ratio
+        );
+    }
+
+    if (mode == Config::LayoutMode::Monocle) {
+        View* focused = m_server ? m_server->get_focused_view() : nullptr;
+        if (focused && focused->get_workspace() == this && !focused->is_floating()) {
+            if (focused->get_scene_tree() && m_tiled_tree) {
+                wlr_scene_node_raise_to_top(&focused->get_scene_tree()->node);
+            }
+        }
+    }
 
     auto* anim_mgr = m_server ? m_server->get_animation_manager() : nullptr;
     bool animate_layout = anim_mgr && Config::get().is_window_animations_enabled() && m_visible;
@@ -269,8 +336,14 @@ struct wlr_box Workspace::calculate_tiled_geometry_for_new_view(const struct wlr
         .height = std::max(50, usable_box.height - 2 * pad),
     };
 
+    auto mode = Config::get().get_layout_mode();
+    if (mode == Config::LayoutMode::Dwindle) {
+        auto [target_focus, cursor_pos] = resolve_dwindle_target();
+        return m_dwindle_tree.calculate_geometry_for_new_view(inner_box, gap, target_focus, cursor_pos);
+    }
+
     auto boxes = Layout::calculate(
-        Config::get().get_layout_mode(),
+        mode,
         m_split_mode,
         inner_box,
         gap,
@@ -719,15 +792,29 @@ void WorkspaceManager::swap_with_main() {
     }
 }
 
-void WorkspaceManager::toggle_layout_mode() {
-    Config::get().toggle_layout_mode();
+void WorkspaceManager::set_layout_mode(Config::LayoutMode mode) {
+    Config::get().set_layout_mode(mode);
     recalculate_layout();
+}
+
+void WorkspaceManager::cycle_layout_mode(bool reverse) {
+    Config::get().cycle_layout_mode(reverse);
+    recalculate_layout();
+}
+
+void WorkspaceManager::toggle_layout_mode() {
+    cycle_layout_mode(false);
 }
 
 void WorkspaceManager::toggle_active_split() {
     Workspace* ws = get_active_workspace();
     if (ws) {
-        ws->toggle_split_mode();
+        if (Config::get().get_layout_mode() == Config::LayoutMode::Dwindle) {
+            View* cur = m_server ? m_server->get_focused_view() : nullptr;
+            ws->toggle_dwindle_split(cur);
+        } else {
+            ws->toggle_split_mode();
+        }
         recalculate_layout();
     }
 }

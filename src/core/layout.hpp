@@ -41,6 +41,37 @@ private:
         double split_ratio,
         double secondary_ratio
     );
+
+    static std::vector<struct wlr_box> calculate_bstack(
+        const struct wlr_box& box,
+        int gap,
+        size_t count,
+        double split_ratio
+    );
+
+    static std::vector<struct wlr_box> calculate_centeredmaster(
+        const struct wlr_box& box,
+        int gap,
+        size_t count,
+        double split_ratio
+    );
+
+    static std::vector<struct wlr_box> calculate_columns(
+        const struct wlr_box& box,
+        int gap,
+        size_t count
+    );
+
+    static std::vector<struct wlr_box> calculate_grid(
+        const struct wlr_box& box,
+        int gap,
+        size_t count
+    );
+
+    static std::vector<struct wlr_box> calculate_monocle(
+        const struct wlr_box& box,
+        size_t count
+    );
 };
 
 } // namespace miquland

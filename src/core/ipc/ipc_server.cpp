@@ -672,12 +672,31 @@ std::string IpcServer::handle_dispatch(const std::string& args) {
         return R"({"status":"ok","action":"fullscreen","fullscreen":)" + std::string(target->is_fullscreen() ? "true" : "false") + "}";
     }
 
-    if (sub_action == "toggle_layout" || sub_action == "layout_toggle") {
+    if (sub_action == "toggle_layout" || sub_action == "layout_toggle" || sub_action == "cycle_layout") {
         if (wm) {
-            wm->toggle_layout_mode();
-            return R"({"status":"ok","action":"toggle_layout"})";
+            std::string dir;
+            iss >> dir;
+            bool reverse = (dir == "prev" || dir == "previous" || dir == "reverse" || dir == "back");
+            wm->cycle_layout_mode(reverse);
+            std::string mode_str = Config::layout_mode_to_string(Config::get().get_layout_mode());
+            return R"({"status":"ok","action":"cycle_layout","layout":")" + mode_str + "\"}";
         }
         return R"({"status":"error","message":"Workspace manager unavailable"})";
+    }
+
+    if (sub_action == "layout" || sub_action == "set_layout") {
+        std::string layout_name;
+        if (iss >> layout_name) {
+            if (wm) {
+                auto mode = Config::string_to_layout_mode(layout_name);
+                wm->set_layout_mode(mode);
+                std::string mode_str = Config::layout_mode_to_string(Config::get().get_layout_mode());
+                return R"({"status":"ok","action":"set_layout","layout":")" + mode_str + "\"}";
+            }
+            return R"({"status":"error","message":"Workspace manager unavailable"})";
+        }
+        std::string mode_str = Config::layout_mode_to_string(Config::get().get_layout_mode());
+        return R"({"status":"ok","action":"get_layout","layout":")" + mode_str + "\"}";
     }
 
     if (sub_action == "swap_main" || sub_action == "swap_master") {
@@ -695,7 +714,7 @@ std::string IpcServer::handle_dispatch(const std::string& args) {
         return R"({"status":"error","message":"Workspace manager unavailable"})";
     }
 
-    if (sub_action == "toggle_split" || sub_action == "split_toggle") {
+    if (sub_action == "toggle_split" || sub_action == "split_toggle" || sub_action == "togglesplit") {
         if (wm) {
             wm->toggle_active_split();
             return R"({"status":"ok","action":"toggle_split"})";

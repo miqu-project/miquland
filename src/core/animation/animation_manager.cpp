@@ -742,9 +742,8 @@ void AnimationManager::schedule_layer_close(LayerSurface* surface, std::function
     auto easing = Easing::from_name(curve_name);
     double now = get_current_time_ms();
 
-    int fade_dur = (rule.fade_close_duration_ms >= 0) ? rule.fade_close_duration_ms : Config::get().get_layer_animation_fade_out_duration_ms();
-    if (fade_dur <= 0) fade_dur = duration;
-    std::string fade_curve_name = (!rule.fade_close_curve.empty()) ? rule.fade_close_curve : Config::get().get_layer_animation_fade_out_curve();
+    int fade_dur = (rule.fade_close_duration_ms > 0) ? rule.fade_close_duration_ms : duration;
+    std::string fade_curve_name = (!rule.fade_close_curve.empty()) ? rule.fade_close_curve : curve_name;
     auto fade_easing = Easing::from_name(fade_curve_name);
     bool fade_enabled = rule.fade_close_enabled && Config::get().is_layer_animation_fade_enabled();
 
@@ -843,14 +842,25 @@ void AnimationManager::schedule_layer_unmap_close(LayerSurface* surface) {
     int base_h = (surface->get_height() > 0) ? surface->get_height() : (buf->height > 0 ? buf->height : 200);
 
     Config::LayerRule rule = Config::get().get_layer_rule(surface->get_namespace());
+    int blur_radius = (rule.blur_corner_radius >= 0) ? rule.blur_corner_radius :
+                      ((rule.shadow_corner_radius >= 0) ? rule.shadow_corner_radius : 0);
+    float blur_alpha = (rule.blur_alpha >= 0.0f) ? rule.blur_alpha : 1.0f;
+    float blur_strength = (rule.blur_strength >= 0.0f) ? rule.blur_strength : 1.0f;
+
     struct wlr_scene_blur* blur = nullptr;
     if (Config::get().is_blur_enabled() && Config::get().is_layer_blur_enabled(surface->get_namespace())) {
         blur = wlr_scene_blur_create(closing_tree, base_w, base_h);
         if (blur) {
-            wlr_scene_blur_set_transparency_mask_source(blur, scene_buf);
+            wlr_scene_blur_set_corner_radius(blur, blur_radius);
+            wlr_scene_blur_set_alpha(blur, blur_alpha);
+            wlr_scene_blur_set_strength(blur, blur_strength);
+            if (!rule.blur_ignore_opacity) {
+                wlr_scene_blur_set_transparency_mask_source(blur, scene_buf);
+            }
             if (rule.blur_bottom_only) {
                 wlr_scene_blur_set_should_only_blur_bottom_layer(blur, true);
             }
+            wlr_scene_node_lower_to_bottom(&blur->node);
         }
     }
     struct wlr_scene_shadow* shadow = nullptr;
@@ -860,7 +870,7 @@ void AnimationManager::schedule_layer_unmap_close(LayerSurface* surface) {
     double shadow_oy = 0.0;
     float shadow_col[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 
-    if (rule.shadow_enabled && Config::get().is_shadow_enabled() &&
+    if (rule.shadow_enabled &&
         surface->get_layer() != ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
         shadow_sigma = (rule.shadow_blur_sigma >= 0.0f) ? rule.shadow_blur_sigma : Config::get().get_shadow_blur_sigma();
         shadow_radius = (rule.shadow_corner_radius >= 0) ? rule.shadow_corner_radius : Config::get().get_window_border_radius();
@@ -901,9 +911,8 @@ void AnimationManager::schedule_layer_unmap_close(LayerSurface* surface) {
     auto easing = Easing::from_name(curve_name);
     double now = get_current_time_ms();
 
-    int fade_dur = (rule.fade_close_duration_ms >= 0) ? rule.fade_close_duration_ms : Config::get().get_layer_animation_fade_out_duration_ms();
-    if (fade_dur <= 0) fade_dur = duration;
-    std::string fade_curve_name = (!rule.fade_close_curve.empty()) ? rule.fade_close_curve : Config::get().get_layer_animation_fade_out_curve();
+    int fade_dur = (rule.fade_close_duration_ms > 0) ? rule.fade_close_duration_ms : duration;
+    std::string fade_curve_name = (!rule.fade_close_curve.empty()) ? rule.fade_close_curve : curve_name;
     auto fade_easing = Easing::from_name(fade_curve_name);
     bool fade_enabled = rule.fade_close_enabled && Config::get().is_layer_animation_fade_enabled();
 
@@ -949,6 +958,8 @@ void AnimationManager::schedule_layer_unmap_close(LayerSurface* surface) {
     anim.shadow_ox = shadow_ox;
     anim.shadow_oy = shadow_oy;
     std::copy(std::begin(shadow_col), std::end(shadow_col), anim.shadow_color);
+    anim.blur_radius = blur_radius;
+    anim.blur_alpha = blur_alpha;
     anim.base_geo_x = surface->get_geo_x();
     anim.base_geo_y = surface->get_geo_y();
     anim.base_width = base_w;
@@ -1586,13 +1597,15 @@ void AnimationManager::tick(double now_ms) {
             double scale_x;
             double scale_y;
             float opacity;
-        } bdata = { cur_scale_x, cur_scale_y, cur_opacity };
+            int base_w;
+            int base_h;
+        } bdata = { cur_scale_x, cur_scale_y, cur_opacity, anim.base_width, anim.base_height };
 
         wlr_scene_node_for_each_buffer(&anim.scene_tree->node, [](struct wlr_scene_buffer* buf, int sx, int sy, void* user_data) {
             auto* d = static_cast<BufferAnimData*>(user_data);
             if ((d->scale_x < 0.999 || d->scale_y < 0.999) && buf->buffer) {
-                int sw = std::max(1, static_cast<int>(std::round(static_cast<double>(buf->buffer->width) * d->scale_x)));
-                int sh = std::max(1, static_cast<int>(std::round(static_cast<double>(buf->buffer->height) * d->scale_y)));
+                int sw = std::max(1, static_cast<int>(std::round(static_cast<double>(d->base_w) * d->scale_x)));
+                int sh = std::max(1, static_cast<int>(std::round(static_cast<double>(d->base_h) * d->scale_y)));
                 wlr_scene_buffer_set_dest_size(buf, sw, sh);
             } else {
                 wlr_scene_buffer_set_dest_size(buf, 0, 0);
@@ -1608,12 +1621,14 @@ void AnimationManager::tick(double now_ms) {
                 int bw = std::max(1, static_cast<int>(std::round(static_cast<double>(anim.base_width) * cur_scale_x)));
                 int bh = std::max(1, static_cast<int>(std::round(static_cast<double>(anim.base_height) * cur_scale_y)));
                 wlr_scene_blur_set_size(anim.blur_node, bw, bh);
-                wlr_scene_blur_set_alpha(anim.blur_node, cur_opacity);
+                wlr_scene_blur_set_alpha(anim.blur_node, cur_opacity * anim.blur_alpha);
+                int br = std::max(0, static_cast<int>(std::round(static_cast<double>(anim.blur_radius) * std::min(cur_scale_x, cur_scale_y))));
+                wlr_scene_blur_set_corner_radius(anim.blur_node, br);
             }
         }
 
         if (anim.shadow_node) {
-            if (cur_opacity < 0.01f || !Config::get().is_shadow_enabled()) {
+            if (cur_opacity < 0.01f) {
                 wlr_scene_node_set_enabled(&anim.shadow_node->node, false);
             } else {
                 wlr_scene_node_set_enabled(&anim.shadow_node->node, true);
@@ -1626,14 +1641,15 @@ void AnimationManager::tick(double now_ms) {
                 wlr_scene_node_set_position(&anim.shadow_node->node, -pad + int_ox, -pad + int_oy);
                 wlr_scene_shadow_set_size(anim.shadow_node, sw + 2 * pad, sh + 2 * pad);
                 wlr_scene_shadow_set_blur_sigma(anim.shadow_node, anim.shadow_sigma);
-                wlr_scene_shadow_set_corner_radius(anim.shadow_node, anim.shadow_radius);
+                int sr = std::max(0, static_cast<int>(std::round(static_cast<double>(anim.shadow_radius) * std::min(cur_scale_x, cur_scale_y))));
+                wlr_scene_shadow_set_corner_radius(anim.shadow_node, sr);
 
                 struct clipped_region cr = clipped_region_get_default();
                 cr.area.x = pad - int_ox;
                 cr.area.y = pad - int_oy;
                 cr.area.width = sw;
                 cr.area.height = sh;
-                cr.corners = corner_radii_all(anim.shadow_radius);
+                cr.corners = corner_radii_all(sr);
                 wlr_scene_shadow_set_clipped_region(anim.shadow_node, cr);
 
                 float final_col[4] = { anim.shadow_color[0], anim.shadow_color[1], anim.shadow_color[2], anim.shadow_color[3] * cur_opacity };

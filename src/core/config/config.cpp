@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <cstdlib>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <ctime>
 #include <iostream>
@@ -31,6 +32,61 @@ Config& Config::get() {
 Config::Config() {
     set_defaults();
     load();
+}
+
+std::string Config::layout_mode_to_string(LayoutMode mode) {
+    switch (mode) {
+        case LayoutMode::Dwindle:        return "dwindle";
+        case LayoutMode::Stack:          return "stack";
+        case LayoutMode::BStack:         return "bstack";
+        case LayoutMode::CenteredMaster: return "centeredmaster";
+        case LayoutMode::Spiral:         return "spiral";
+        case LayoutMode::Columns:        return "columns";
+        case LayoutMode::Grid:           return "grid";
+        case LayoutMode::Monocle:        return "monocle";
+    }
+    return "dwindle";
+}
+
+Config::LayoutMode Config::string_to_layout_mode(const std::string& str) {
+    std::string lower = str;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    if (lower == "dwindle" || lower == "bsp") return LayoutMode::Dwindle;
+    if (lower == "stack" || lower == "master") return LayoutMode::Stack;
+    if (lower == "bstack" || lower == "bottomstack") return LayoutMode::BStack;
+    if (lower == "centeredmaster" || lower == "centermaster") return LayoutMode::CenteredMaster;
+    if (lower == "spiral" || lower == "fibonacci") return LayoutMode::Spiral;
+    if (lower == "columns" || lower == "col") return LayoutMode::Columns;
+    if (lower == "grid") return LayoutMode::Grid;
+    if (lower == "monocle" || lower == "full" || lower == "single") return LayoutMode::Monocle;
+    return LayoutMode::Dwindle;
+}
+
+void Config::cycle_layout_mode(bool reverse) {
+    static const std::array<LayoutMode, 8> modes = {
+        LayoutMode::Dwindle,
+        LayoutMode::Stack,
+        LayoutMode::BStack,
+        LayoutMode::CenteredMaster,
+        LayoutMode::Spiral,
+        LayoutMode::Columns,
+        LayoutMode::Grid,
+        LayoutMode::Monocle
+    };
+
+    auto it = std::find(modes.begin(), modes.end(), m_layout_mode);
+    if (it == modes.end()) {
+        m_layout_mode = LayoutMode::Dwindle;
+        return;
+    }
+
+    size_t idx = std::distance(modes.begin(), it);
+    if (reverse) {
+        idx = (idx == 0) ? (modes.size() - 1) : (idx - 1);
+    } else {
+        idx = (idx + 1) % modes.size();
+    }
+    m_layout_mode = modes[idx];
 }
 
 void Config::set_defaults() {
@@ -70,36 +126,38 @@ void Config::set_defaults() {
     m_window_opacity_inactive = 0.85f;
     m_animations_enabled = true;
     m_workspace_animations_enabled = true;
-    m_workspace_animation_duration_ms = 280;
-    m_workspace_animation_curve = "ease_in_out_cubic";
+    m_workspace_animation_duration_ms = 500;
+    m_workspace_animation_curve = "smooth_slide";
     m_window_animations_enabled = true;
     m_window_open_animation_enabled = true;
     m_window_close_animation_enabled = true;
-    m_window_animation_duration_ms = 220;
-    m_window_animation_open_duration_ms = 220;
-    m_window_animation_close_duration_ms = 140;
-    m_window_animation_curve = "ease_out_cubic";
-    m_window_animation_open_curve = "ease_out_cubic";
+    m_window_animation_duration_ms = 420;
+    m_window_animation_open_duration_ms = 420;
+    m_window_animation_close_duration_ms = 250;
+    m_window_animation_curve = "smooth_pop";
+    m_window_animation_open_curve = "smooth_pop";
     m_window_animation_close_curve = "smooth_in";
-    m_window_animation_open_scale = 0.95;
-    m_window_animation_close_scale = 0.95;
+    m_window_animation_open_scale = 0.75;
+    m_window_animation_close_scale = 0.85;
     m_window_open_fade_enabled = true;
     m_window_close_fade_enabled = true;
-    m_window_animation_fade_in_duration_ms = 180;
-    m_window_animation_fade_out_duration_ms = 120;
-    m_window_animation_fade_in_curve = "";
-    m_window_animation_fade_out_curve = "";
+    m_window_animation_fade_in_duration_ms = 320;
+    m_window_animation_fade_out_duration_ms = 200;
+    m_window_animation_fade_in_curve = "ease_out_cubic";
+    m_window_animation_fade_out_curve = "smooth_in";
     m_layer_animations_enabled = true;
-    m_layer_animation_duration_ms = 200;
-    m_layer_animation_open_duration_ms = 200;
-    m_layer_animation_close_duration_ms = 150;
-    m_layer_animation_curve = "ease_out_cubic";
-    m_layer_animation_open_curve = "ease_out_cubic";
+    m_layer_animation_duration_ms = 350;
+    m_layer_animation_open_duration_ms = 350;
+    m_layer_animation_close_duration_ms = 220;
+    m_layer_animation_curve = "smooth_pop";
+    m_layer_animation_open_curve = "smooth_pop";
     m_layer_animation_close_curve = "smooth_in";
-    m_layer_animation_popin_scale = 0.95;
+    m_layer_animation_popin_scale = 0.75;
     m_layer_animation_fade_enabled = true;
-    m_layer_animation_fade_in_duration_ms = 160;
-    m_layer_animation_fade_out_duration_ms = 120;
+    m_layer_animation_fade_in_duration_ms = 280;
+    m_layer_animation_fade_out_duration_ms = 180;
+    m_layer_animation_fade_in_curve = "ease_out_cubic";
+    m_layer_animation_fade_out_curve = "smooth_in";
     m_layer_rules.clear();
     m_blur_enabled = true;
     m_blur_radius = 5;
@@ -127,7 +185,7 @@ void Config::set_defaults() {
     m_window_border_radius = 10;
     m_space_between_windows = 8;
     m_screen_edge_padding = 12;
-    m_layout_mode = LayoutMode::Spiral;
+    m_layout_mode = LayoutMode::Dwindle;
     m_resize_on_border = true;
     m_border_grab_area = 6;
 
@@ -137,6 +195,10 @@ void Config::set_defaults() {
     m_cursor_theme = "";
     m_cursor_size = 24;
     m_default_split_ratio = 0.5;
+    m_dwindle_split_focus = false;
+    m_dwindle_split_width_multiplier = 1.2;
+    m_dwindle_preserve_split = true;
+    m_dwindle_smart_split = false;
     m_workspace_cycle = false;
     m_vfr_enabled = true;
 }
@@ -1245,11 +1307,17 @@ void Config::parse_general_entry(const std::string& path_str, const std::string&
                                  const std::vector<SectionFrame>& stack, const std::string& key, const std::string& value) {
     if (path_str == "general" || top_type == "general") {
         if (key == "layout" || key == "tiling_layout") {
-            std::string lower = value;
-            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-            m_layout_mode = (lower == "stack" || lower == "master") ? LayoutMode::Stack : LayoutMode::Spiral;
+            m_layout_mode = string_to_layout_mode(value);
         } else if (key == "default_split_ratio" || key == "split_ratio") {
             try { m_default_split_ratio = std::clamp(std::stod(value), 0.1, 0.9); } catch (...) {}
+        } else if (key == "dwindle_split_focus" || key == "split_focus" || key == "use_active_for_splits") {
+            m_dwindle_split_focus = (value == "true" || value == "1" || value == "yes");
+        } else if (key == "dwindle_split_width_multiplier" || key == "split_width_multiplier") {
+            try { m_dwindle_split_width_multiplier = std::clamp(std::stod(value), 0.5, 3.0); } catch (...) {}
+        } else if (key == "dwindle_preserve_split" || key == "preserve_split") {
+            m_dwindle_preserve_split = (value == "true" || value == "1" || value == "yes");
+        } else if (key == "dwindle_smart_split") {
+            m_dwindle_smart_split = (value == "true" || value == "1" || value == "yes");
         } else if (key == "smart_gaps") {
             m_smart_gaps = (value == "true" || value == "1" || value == "yes");
         } else if (key == "allow_tearing" || key == "tearing") {
@@ -1284,6 +1352,19 @@ void Config::parse_general_entry(const std::string& path_str, const std::string&
             m_window_border_shading = (value == "true" || value == "1" || value == "yes");
         } else if (key == "shading_strength") {
             try { m_window_border_shading_strength = std::clamp(std::stof(value), 0.0f, 1.0f); } catch (...) {}
+        }
+    } else if (path_str == "general.dwindle" || path_str == "dwindle" || top_type == "dwindle" ||
+               (top_type == "dwindle" && is_in_path(stack, "general"))) {
+        if (key == "split_focus" || key == "use_active_for_splits" || key == "dwindle_split_focus") {
+            m_dwindle_split_focus = (value == "true" || value == "1" || value == "yes");
+        } else if (key == "split_width_multiplier" || key == "dwindle_split_width_multiplier") {
+            try { m_dwindle_split_width_multiplier = std::clamp(std::stod(value), 0.5, 3.0); } catch (...) {}
+        } else if (key == "preserve_split" || key == "dwindle_preserve_split") {
+            m_dwindle_preserve_split = (value == "true" || value == "1" || value == "yes");
+        } else if (key == "smart_split" || key == "dwindle_smart_split") {
+            m_dwindle_smart_split = (value == "true" || value == "1" || value == "yes");
+        } else if (key == "default_split_ratio" || key == "split_ratio") {
+            try { m_default_split_ratio = std::clamp(std::stod(value), 0.1, 0.9); } catch (...) {}
         }
     }
 }
@@ -2307,7 +2388,8 @@ void Config::load_file(const std::string& path, std::vector<KeyBinding>& file_bi
             parse_monitors_entry(key, value, file_monitors, has_monitors_in_file);
         } else if (path_str == "cursor" || top_type == "cursor") {
             parse_cursor_entry(key, value);
-        } else if (path_str.rfind("general", 0) == 0 || top_type == "general" || top_type == "gaps" || top_type == "border") {
+        } else if (path_str.rfind("general", 0) == 0 || top_type == "general" || top_type == "gaps" || top_type == "border" ||
+                   path_str == "dwindle" || top_type == "dwindle") {
             parse_general_entry(path_str, top_type, section_stack, key, value);
         } else if (path_str.rfind("decoration", 0) == 0 || top_type == "decoration" || top_type == "blur" || top_type == "shadow") {
             parse_decoration_entry(path_str, top_type, section_stack, key, value);
@@ -2425,7 +2507,7 @@ void Config::save() {
     file << "}\n\n";
 
     file << "general {\n";
-    file << "    layout = " << (m_layout_mode == LayoutMode::Stack ? "stack" : "spiral") << "\n";
+    file << "    layout = " << layout_mode_to_string(m_layout_mode) << "\n";
     file << "    default_split_ratio = " << m_default_split_ratio << "\n";
     file << "    smart_gaps = " << (m_smart_gaps ? "true" : "false") << "\n";
     file << "    allow_tearing = " << (m_allow_tearing ? "true" : "false") << "\n";
@@ -2444,6 +2526,12 @@ void Config::save() {
     file << "        inactive = " << m_window_border_color_inactive << "\n";
     file << "        shading = " << (m_window_border_shading ? "true" : "false") << "\n";
     file << "        shading_strength = " << m_window_border_shading_strength << "\n";
+    file << "    }\n";
+    file << "    dwindle {\n";
+    file << "        split_focus = " << (m_dwindle_split_focus ? "true" : "false") << "\n";
+    file << "        split_width_multiplier = " << m_dwindle_split_width_multiplier << "\n";
+    file << "        preserve_split = " << (m_dwindle_preserve_split ? "true" : "false") << "\n";
+    file << "        smart_split = " << (m_dwindle_smart_split ? "true" : "false") << "\n";
     file << "    }\n";
     file << "}\n\n";
 

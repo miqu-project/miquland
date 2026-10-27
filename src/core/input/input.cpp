@@ -475,12 +475,20 @@ void InputManager::begin_interactive(View* view, CursorMode mode, uint32_t edges
 
     if (m_grabbed_view_was_tiled && view->get_workspace()) {
         Workspace* ws = view->get_workspace();
-        m_grab_initial_split_ratio = ws->get_split_ratio();
-        m_grab_initial_secondary_ratio = ws->get_secondary_split_ratio();
+        auto lmode = Config::get().get_layout_mode();
+        if (lmode == Config::LayoutMode::Dwindle) {
+            m_grab_initial_split_ratio = ws->get_dwindle_split_ratio(view);
+            m_grab_initial_secondary_ratio = m_grab_initial_split_ratio;
+        } else {
+            m_grab_initial_split_ratio = ws->get_split_ratio();
+            m_grab_initial_secondary_ratio = ws->get_secondary_split_ratio();
+        }
 
         bool primary_is_horizontal = (ws->get_split_mode() == SplitMode::Horizontal);
-        if (Config::get().get_layout_mode() == Config::LayoutMode::Stack) {
+        if (lmode == Config::LayoutMode::Stack || lmode == Config::LayoutMode::CenteredMaster || lmode == Config::LayoutMode::Columns) {
             primary_is_horizontal = true;
+        } else if (lmode == Config::LayoutMode::BStack) {
+            primary_is_horizontal = false;
         }
 
         if (primary_is_horizontal) {
@@ -682,11 +690,11 @@ bool InputManager::execute_action(const std::string& action) {
         }
     } else if (action == "toggle_floating" || action == "toggle_float" || action == "floating_toggle") {
         m_server->get_workspace_manager()->toggle_floating_active();
-    } else if (action == "toggle_layout" || action == "layout_toggle") {
+    } else if (action == "toggle_layout" || action == "layout_toggle" || action == "cycle_layout") {
         m_server->get_workspace_manager()->toggle_layout_mode();
     } else if (action == "swap_main" || action == "swap_master" || action == "swap_with_main") {
         m_server->get_workspace_manager()->swap_with_main();
-    } else if (action == "toggle_split" || action == "split_toggle") {
+    } else if (action == "toggle_split" || action == "split_toggle" || action == "togglesplit") {
         m_server->get_workspace_manager()->toggle_active_split();
     } else if (action == "focus_win_1" || action == "window_1") {
         m_server->get_workspace_manager()->focus_window_index(0);
@@ -794,12 +802,29 @@ void InputManager::process_cursor_motion(uint32_t time) {
                     int usable_h = std::max(50, usable.height - 2 * pad);
 
                     bool primary_is_horizontal = (ws->get_split_mode() == SplitMode::Horizontal);
-                    if (Config::get().get_layout_mode() == Config::LayoutMode::Stack) {
+                    auto lmode = Config::get().get_layout_mode();
+                    if (lmode == Config::LayoutMode::Stack || lmode == Config::LayoutMode::CenteredMaster || lmode == Config::LayoutMode::Columns) {
                         primary_is_horizontal = true;
+                    } else if (lmode == Config::LayoutMode::BStack) {
+                        primary_is_horizontal = false;
                     }
 
                     double dx = m_cursor->x - m_grab_x;
                     double dy = m_cursor->y - m_grab_y;
+
+                    if (lmode == Config::LayoutMode::Dwindle) {
+                        bool is_horiz = (ws->get_dwindle_split_direction(m_grabbed_view) == DwindleSplit::Horizontal);
+                        double delta = 0.0;
+                        if (is_horiz) {
+                            delta = dx / static_cast<double>(usable_w);
+                        } else {
+                            delta = dy / static_cast<double>(usable_h);
+                        }
+                        double new_ratio = m_grab_initial_split_ratio + delta;
+                        ws->set_dwindle_split_ratio(m_grabbed_view, new_ratio);
+                        ws->recalculate_layout(usable);
+                        return;
+                    }
 
                     if (m_grab_resize_is_secondary && ws->get_tiled_views().size() >= 3) {
                         if (primary_is_horizontal) {

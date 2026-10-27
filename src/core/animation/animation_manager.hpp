@@ -102,6 +102,8 @@ struct ClosingLayerAnimation {
     double shadow_ox = 0.0;
     double shadow_oy = 0.0;
     float shadow_color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    int blur_radius = 0;
+    float blur_alpha = 1.0f;
     int base_geo_x = 0;
     int base_geo_y = 0;
     int base_width = 0;

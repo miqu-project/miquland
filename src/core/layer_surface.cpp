@@ -365,14 +365,13 @@ void LayerSurface::apply_animation_transform(int offset_x, int offset_y, double 
     }
 
     if (m_shadow_node) {
-        if (safe_opacity < 0.01f || !Config::get().is_shadow_enabled()) {
+        Config::LayerRule rule = Config::get().get_layer_rule(m_namespace);
+        if (safe_opacity < 0.01f || !rule.shadow_enabled) {
             wlr_scene_node_set_enabled(&m_shadow_node->node, false);
         } else {
             wlr_scene_node_set_enabled(&m_shadow_node->node, true);
             int sw = std::max(1, static_cast<int>(std::round(static_cast<double>(base_w) * scale_x)));
             int sh = std::max(1, static_cast<int>(std::round(static_cast<double>(base_h) * scale_y)));
-
-            Config::LayerRule rule = Config::get().get_layer_rule(m_namespace);
             float sigma = (rule.shadow_blur_sigma >= 0.0f) ? rule.shadow_blur_sigma : Config::get().get_shadow_blur_sigma();
             int radius = (rule.shadow_corner_radius >= 0) ? rule.shadow_corner_radius : Config::get().get_window_border_radius();
             double ox = rule.shadow_offset_specified ? rule.shadow_offset_x : Config::get().get_shadow_offset_x();
