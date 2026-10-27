@@ -1019,6 +1019,41 @@ void InputManager::handle_cursor_motion_absolute(struct wl_listener* listener, v
     manager->process_cursor_motion(event->time_msec);
 }
 
+bool InputManager::dismiss_transient_layer_overlays(struct wlr_surface* surface) {
+    std::vector<struct wlr_layer_surface_v1*> overlays_to_close;
+    for (const auto& l_surf : m_server->get_layer_surfaces()) {
+        if (!l_surf || !l_surf->get_wlr_layer_surface()) continue;
+        auto* wlr_ls = l_surf->get_wlr_layer_surface();
+        const std::string& ns = l_surf->get_namespace();
+        // Tooltips and hover previews are non-modal passive elements that must never swallow clicks
+        if (ns.find("tooltip") != std::string::npos || ns.find("preview") != std::string::npos) {
+            continue;
+        }
+        if (wlr_ls->surface && !pixman_region32_not_empty(&wlr_ls->surface->current.input)) {
+            continue;
+        }
+        bool is_transient =
+            wlr_ls->current.exclusive_zone <= 0 &&
+            ((wlr_ls->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY &&
+              wlr_ls->current.keyboard_interactive != ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE) ||
+             (wlr_ls->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_TOP &&
+              wlr_ls->current.keyboard_interactive == ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND));
+
+        if (is_transient && wlr_ls->surface && wlr_ls->surface->mapped) {
+            if (!l_surf->contains_surface(surface)) {
+                overlays_to_close.push_back(wlr_ls);
+            }
+        }
+    }
+    if (!overlays_to_close.empty()) {
+        for (auto* ls : overlays_to_close) {
+            wlr_layer_surface_v1_destroy(ls);
+        }
+        return true;
+    }
+    return false;
+}
+
 void InputManager::handle_cursor_button(struct wl_listener* listener, void* data) {
     InputManager* manager = wl_container_of(listener, manager, m_cursor_button_listener);
     auto* event = static_cast<struct wlr_pointer_button_event*>(data);
@@ -1063,32 +1098,7 @@ void InputManager::handle_cursor_button(struct wl_listener* listener, void* data
     }
 
     if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
-        // Dismiss transient layer overlays on outside click
-        std::vector<struct wlr_layer_surface_v1*> overlays_to_close;
-        for (const auto& l_surf : manager->m_server->get_layer_surfaces()) {
-            if (!l_surf || !l_surf->get_wlr_layer_surface()) continue;
-            auto* wlr_ls = l_surf->get_wlr_layer_surface();
-            const std::string& ns = l_surf->get_namespace();
-            // Tooltips and hover previews are non-modal passive elements that must never swallow clicks
-            if (ns.find("tooltip") != std::string::npos || ns.find("preview") != std::string::npos) {
-                continue;
-            }
-            if (wlr_ls->surface && !pixman_region32_not_empty(&wlr_ls->surface->current.input)) {
-                continue;
-            }
-            if (wlr_ls->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY &&
-                wlr_ls->current.exclusive_zone <= 0 &&
-                wlr_ls->current.keyboard_interactive != ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE &&
-                wlr_ls->surface && wlr_ls->surface->mapped) {
-                if (!l_surf->contains_surface(surface)) {
-                    overlays_to_close.push_back(wlr_ls);
-                }
-            }
-        }
-        if (!overlays_to_close.empty()) {
-            for (auto* ls : overlays_to_close) {
-                wlr_layer_surface_v1_destroy(ls);
-            }
+        if (manager->dismiss_transient_layer_overlays(surface)) {
             // Dismissal consumed the click; return early so the dismissal click does not trigger underlying buttons
             return;
         }
@@ -1355,6 +1365,10 @@ void InputManager::handle_cursor_touch_down(struct wl_listener* listener, void* 
     if (target_view && target_view->has_child_dialogs()) {
         View* top_dialog = target_view->get_top_dialog();
         if (top_dialog) target_view = top_dialog;
+    }
+
+    if (manager->dismiss_transient_layer_overlays(surface)) {
+        return;
     }
 
     if (target_view && !target_view->is_override_redirect()) {

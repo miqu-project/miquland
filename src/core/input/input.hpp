@@ -83,6 +83,7 @@ private:
     static void handle_cursor_touch_frame(struct wl_listener* listener, void* data);
 
     void process_cursor_motion(uint32_t time);
+    bool dismiss_transient_layer_overlays(struct wlr_surface* surface);
 
     Server* m_server = nullptr;
     struct wlr_seat* m_seat = nullptr;
