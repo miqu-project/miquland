@@ -44,10 +44,19 @@ public:
     // Input hooks: return true if the event was consumed and should NOT be processed further
     virtual void register_pointer_button_hook(std::function<bool(double lx, double ly, uint32_t button, bool pressed)> hook) = 0;
     virtual void register_pointer_motion_hook(std::function<bool(double lx, double ly)> hook) = 0;
+    virtual void register_pointer_axis_hook(std::function<bool(double lx, double ly, double delta_x, double delta_y)> hook) = 0;
     virtual void register_key_hook(std::function<bool(uint32_t keysym, uint32_t modifiers, bool pressed)> hook) = 0;
 
     // Lifecycle hooks: called when a View is being destroyed before scene tree teardown
     virtual void register_view_destroy_hook(std::function<void(View*)> hook) = 0;
+
+    // VSync-driven generic animations and frame scheduling
+    virtual uint64_t schedule_animation(double duration_ms,
+                                        std::function<float(float)> easing_fn,
+                                        std::function<void(float progress)> on_step,
+                                        std::function<void()> on_complete = nullptr) = 0;
+    virtual void cancel_animation(uint64_t id) = 0;
+    virtual void schedule_frame() = 0;
 };
 
 typedef PluginInfo* (*PluginInitFunc)(PluginAPI* api);

@@ -19,6 +19,9 @@ Output::Output(Server* server, struct wlr_output* wlr_output)
     m_frame_listener.notify = handle_frame;
     wl_signal_add(&wlr_output->events.frame, &m_frame_listener);
 
+    m_needs_frame_listener.notify = handle_needs_frame;
+    wl_signal_add(&wlr_output->events.needs_frame, &m_needs_frame_listener);
+
     m_request_state_listener.notify = handle_request_state;
     wl_signal_add(&wlr_output->events.request_state, &m_request_state_listener);
 
@@ -123,8 +126,14 @@ void Output::apply_config() {
 
 Output::~Output() {
     wl_list_remove(&m_frame_listener.link);
+    wl_list_remove(&m_needs_frame_listener.link);
     wl_list_remove(&m_request_state_listener.link);
     wl_list_remove(&m_destroy_listener.link);
+}
+
+void Output::handle_needs_frame(struct wl_listener* listener, void* data) {
+    Output* output = wl_container_of(listener, output, m_needs_frame_listener);
+    wlr_output_schedule_frame(output->m_wlr_output);
 }
 
 void Output::handle_frame(struct wl_listener* listener, void* data) {
@@ -141,7 +150,11 @@ void Output::handle_frame(struct wl_listener* listener, void* data) {
     bool has_active_anims = (output->m_server && output->m_server->get_animation_manager() &&
                              output->m_server->get_animation_manager()->has_active_animations());
 
-    if (!wlr_scene_output_needs_frame(output->m_scene_output) && !has_active_anims) {
+    bool needs_frame = output->m_wlr_output->needs_frame ||
+                       wlr_scene_output_needs_frame(output->m_scene_output) ||
+                       has_active_anims;
+
+    if (!needs_frame) {
         return;
     }
 

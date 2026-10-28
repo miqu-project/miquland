@@ -9,6 +9,7 @@
 #include "core/plugin_manager.hpp"
 #include "core/animation/animation_manager.hpp"
 #include "core/ipc/ipc_server.hpp"
+#include <wlr/types/wlr_subcompositor.h>
 #include <atomic>
 #include <cmath>
 #include <algorithm>
@@ -52,6 +53,7 @@ View::View(Server* server, struct wlr_xdg_toplevel* toplevel)
     wl_list_init(&m_foreign_request_activate_listener.link);
     wl_list_init(&m_foreign_request_close_listener.link);
     wl_list_init(&m_new_popup_listener.link);
+    wl_list_init(&m_new_subsurface_listener.link);
     wl_list_init(&m_scene_tree_destroy_listener.link);
     wl_list_init(&m_associate_listener.link);
     wl_list_init(&m_dissociate_listener.link);
@@ -138,6 +140,10 @@ View::View(Server* server, struct wlr_xdg_toplevel* toplevel)
     m_new_popup_listener.notify = handle_new_popup;
     wl_signal_add(&toplevel->base->events.new_popup, &m_new_popup_listener);
 
+    m_new_subsurface_listener.notify = handle_new_subsurface;
+    wl_signal_add(&toplevel->base->surface->events.new_subsurface, &m_new_subsurface_listener);
+    scan_existing_subsurfaces(toplevel->base->surface);
+
     update_parent_relationship();
     setup_foreign_toplevel();
 }
@@ -162,6 +168,7 @@ View::View(Server* server, struct wlr_xwayland_surface* xsurface)
     wl_list_init(&m_foreign_request_activate_listener.link);
     wl_list_init(&m_foreign_request_close_listener.link);
     wl_list_init(&m_new_popup_listener.link);
+    wl_list_init(&m_new_subsurface_listener.link);
     wl_list_init(&m_scene_tree_destroy_listener.link);
     wl_list_init(&m_associate_listener.link);
     wl_list_init(&m_dissociate_listener.link);
@@ -298,6 +305,8 @@ View::~View() {
     safe_remove_listener(m_set_app_id_listener);
     safe_remove_listener(m_set_parent_listener);
     safe_remove_listener(m_new_popup_listener);
+    safe_remove_listener(m_new_subsurface_listener);
+    m_subsurfaces.clear();
 
     safe_remove_listener(m_associate_listener);
     safe_remove_listener(m_dissociate_listener);
@@ -330,6 +339,11 @@ View::~View() {
     if (m_foreign_toplevel) {
         wlr_foreign_toplevel_handle_v1_destroy(m_foreign_toplevel);
         m_foreign_toplevel = nullptr;
+    }
+
+    if (m_ext_foreign_toplevel) {
+        wlr_ext_foreign_toplevel_handle_v1_destroy(m_ext_foreign_toplevel);
+        m_ext_foreign_toplevel = nullptr;
     }
 
     m_popups.clear();
@@ -367,6 +381,19 @@ void View::setup_foreign_toplevel() {
 
             m_foreign_request_close_listener.notify = handle_foreign_request_close;
             wl_signal_add(&m_foreign_toplevel->events.request_close, &m_foreign_request_close_listener);
+        }
+    }
+
+    if (m_server->get_ext_foreign_toplevel_list()) {
+        std::string title = get_title();
+        std::string app_id = get_app_id();
+        struct wlr_ext_foreign_toplevel_handle_v1_state state = {
+            .title = title.c_str(),
+            .app_id = app_id.c_str(),
+        };
+        m_ext_foreign_toplevel = wlr_ext_foreign_toplevel_handle_v1_create(m_server->get_ext_foreign_toplevel_list(), &state);
+        if (m_ext_foreign_toplevel) {
+            m_ext_foreign_toplevel->data = this;
         }
     }
 }
@@ -1297,6 +1324,92 @@ void View::finish_geometry_animation(int target_x, int target_y, int target_w, i
     }
 }
 
+View::SubsurfaceTracker::SubsurfaceTracker(View* v, struct wlr_subsurface* sub)
+    : view(v), subsurface(sub)
+{
+    wl_list_init(&commit_listener.link);
+    wl_list_init(&destroy_listener.link);
+    wl_list_init(&new_subsurface_listener.link);
+
+    commit_listener.notify = handle_subsurface_commit;
+    wl_signal_add(&sub->surface->events.commit, &commit_listener);
+
+    destroy_listener.notify = handle_subsurface_destroy;
+    wl_signal_add(&sub->events.destroy, &destroy_listener);
+
+    new_subsurface_listener.notify = handle_subsurface_new_subsurface;
+    wl_signal_add(&sub->surface->events.new_subsurface, &new_subsurface_listener);
+}
+
+View::SubsurfaceTracker::~SubsurfaceTracker() {
+    safe_remove_listener(commit_listener);
+    safe_remove_listener(destroy_listener);
+    safe_remove_listener(new_subsurface_listener);
+}
+
+void View::handle_subsurface_commit(struct wl_listener* listener, void* data) {
+    View::SubsurfaceTracker* tracker = wl_container_of(listener, tracker, commit_listener);
+    if (!tracker || !tracker->view) return;
+    if (tracker->view->is_overview_scaled()) {
+        tracker->view->reapply_overview_scale();
+    }
+}
+
+void View::handle_subsurface_destroy(struct wl_listener* listener, void* data) {
+    View::SubsurfaceTracker* tracker = wl_container_of(listener, tracker, destroy_listener);
+    if (!tracker || !tracker->view) return;
+    tracker->view->unregister_subsurface(tracker->subsurface);
+}
+
+void View::handle_subsurface_new_subsurface(struct wl_listener* listener, void* data) {
+    View::SubsurfaceTracker* tracker = wl_container_of(listener, tracker, new_subsurface_listener);
+    if (!tracker || !tracker->view) return;
+    auto* child = static_cast<struct wlr_subsurface*>(data);
+    if (child) {
+        tracker->view->register_subsurface(child);
+    }
+}
+
+void View::handle_new_subsurface(struct wl_listener* listener, void* data) {
+    View* view = wl_container_of(listener, view, m_new_subsurface_listener);
+    auto* sub = static_cast<struct wlr_subsurface*>(data);
+    if (sub) {
+        view->register_subsurface(sub);
+    }
+}
+
+void View::register_subsurface(struct wlr_subsurface* sub) {
+    if (!sub || !sub->surface) return;
+    for (const auto& tracker : m_subsurfaces) {
+        if (tracker->subsurface == sub) return;
+    }
+    m_subsurfaces.push_back(std::make_unique<SubsurfaceTracker>(this, sub));
+    scan_existing_subsurfaces(sub->surface);
+    if (m_is_overview_scaled) {
+        reapply_overview_scale();
+    }
+}
+
+void View::unregister_subsurface(struct wlr_subsurface* sub) {
+    for (auto it = m_subsurfaces.begin(); it != m_subsurfaces.end(); ++it) {
+        if ((*it)->subsurface == sub) {
+            m_subsurfaces.erase(it);
+            break;
+        }
+    }
+}
+
+void View::scan_existing_subsurfaces(struct wlr_surface* surface) {
+    if (!surface) return;
+    struct wlr_subsurface* sub;
+    wl_list_for_each(sub, &surface->current.subsurfaces_below, current.link) {
+        register_subsurface(sub);
+    }
+    wl_list_for_each(sub, &surface->current.subsurfaces_above, current.link) {
+        register_subsurface(sub);
+    }
+}
+
 void View::set_overview_scaled(bool scaled, double scale) {
     if (m_is_overview_scaled == scaled && std::abs(m_overview_scale - scale) < 0.0001) {
         return;
@@ -1304,6 +1417,16 @@ void View::set_overview_scaled(bool scaled, double scale) {
 
     m_is_overview_scaled = scaled;
     m_overview_scale = scale;
+
+    // Hide or restore popups belonging to this view
+    for (auto& popup : m_popups) {
+        if (popup && popup->get_scene_tree()) {
+            wlr_scene_node_set_enabled(&popup->get_scene_tree()->node, !scaled);
+            if (!scaled) {
+                popup->update_position();
+            }
+        }
+    }
 
     if (scaled) {
         if (m_border_scene_buffer) {
@@ -1318,13 +1441,54 @@ void View::set_overview_scaled(bool scaled, double scale) {
         reapply_overview_scale();
     } else {
         int bw = Config::get().get_window_border_width();
+        int client_w = std::max(1, m_width - 2 * bw);
+        int client_h = std::max(1, m_height - 2 * bw);
+
         if (m_surface_scene_tree) {
             wlr_scene_node_set_position(&m_surface_scene_tree->node, bw, bw);
-            wlr_scene_node_for_each_buffer(&m_surface_scene_tree->node, [](struct wlr_scene_buffer* buf, int sx, int sy, void* data) {
-                wlr_scene_buffer_set_dest_size(buf, 0, 0);
-            }, nullptr);
+            struct wlr_surface* root = get_wlr_surface();
+
+            struct BufferRestoreData {
+                struct wlr_surface* root;
+                int target_w;
+                int target_h;
+            } data = { root, client_w, client_h };
+
+            wlr_scene_node_for_each_buffer(&m_surface_scene_tree->node, [](struct wlr_scene_buffer* buf, int sx, int sy, void* udata) {
+                auto* d = static_cast<BufferRestoreData*>(udata);
+                if (!buf) return;
+
+                struct wlr_scene_surface* ss = wlr_scene_surface_try_from_buffer(buf);
+                if (ss && ss->surface && ss->surface != d->root) {
+                    struct wlr_subsurface* sub = wlr_subsurface_try_from_wlr_surface(ss->surface);
+                    if (sub && buf->node.parent) {
+                        wlr_scene_node_set_position(&buf->node.parent->node, sub->current.x, sub->current.y);
+                    }
+                    wlr_scene_buffer_set_dest_size(buf, 0, 0);
+                } else if (buf->buffer) {
+                    if (buf->buffer->width == d->target_w && buf->buffer->height == d->target_h) {
+                        wlr_scene_buffer_set_dest_size(buf, 0, 0);
+                    } else {
+                        wlr_scene_buffer_set_dest_size(buf, d->target_w, d->target_h);
+                    }
+                }
+            }, &data);
         }
+
+        update_corner_radius();
+        update_opacity();
         update_frame();
+
+        if (m_blur_node) {
+            wlr_scene_node_set_enabled(&m_blur_node->node, Config::get().is_blur_enabled());
+            wlr_scene_blur_set_size(m_blur_node, m_width, m_height);
+        }
+        if (m_shadow_node) {
+            std::string app_id = get_app_id();
+            std::string title = get_title();
+            bool shadow_enabled = Config::get().is_window_shadow_enabled(app_id, title, Config::get().is_shadow_enabled());
+            wlr_scene_node_set_enabled(&m_shadow_node->node, shadow_enabled && !m_is_fullscreen && !m_is_override_redirect);
+        }
     }
 }
 
@@ -1344,9 +1508,14 @@ void View::reapply_overview_scale() {
     if (m_blur_node) {
         wlr_scene_node_set_enabled(&m_blur_node->node, false);
     }
+    if (m_shadow_node) {
+        wlr_scene_node_set_enabled(&m_shadow_node->node, false);
+    }
 
     int geom_x = 0, geom_y = 0;
     int geom_w = client_w, geom_h = client_h;
+
+    struct wlr_surface* root_surface = get_wlr_surface();
 
     if (m_type == ViewType::Xdg && m_xdg_toplevel && m_xdg_toplevel->base) {
         auto* xdg_surf = m_xdg_toplevel->base;
@@ -1358,7 +1527,8 @@ void View::reapply_overview_scale() {
         }
     }
 
-    wlr_scene_node_set_position(&m_surface_scene_tree->node, 0, 0);
+    int scaled_bw = static_cast<int>(std::round(bw * scale));
+    wlr_scene_node_set_position(&m_surface_scene_tree->node, scaled_bw, scaled_bw);
 
     // Clip in root surface unscaled coordinate space to crop CSD drop-shadows
     struct wlr_box clip = {
@@ -1369,15 +1539,50 @@ void View::reapply_overview_scale() {
     };
     wlr_scene_subsurface_tree_set_clip(&m_surface_scene_tree->node, &clip);
 
-    // Scale all buffers in surface scene tree
-    wlr_scene_node_for_each_buffer(&m_surface_scene_tree->node, [](struct wlr_scene_buffer* buf, int sx, int sy, void* data) {
-        double s = *static_cast<double*>(data);
-        if (buf->buffer) {
-            int sw = std::max(1, static_cast<int>(std::round(buf->buffer->width * s)));
-            int sh = std::max(1, static_cast<int>(std::round(buf->buffer->height * s)));
+    struct ScaleData {
+        double scale;
+        struct wlr_surface* root;
+        int geom_w;
+        int geom_h;
+    } data = { scale, root_surface, geom_w, geom_h };
+
+    wlr_scene_node_for_each_buffer(&m_surface_scene_tree->node, [](struct wlr_scene_buffer* buf, int sx, int sy, void* user_data) {
+        auto* d = static_cast<ScaleData*>(user_data);
+        if (!buf) return;
+
+        struct wlr_scene_surface* ss = wlr_scene_surface_try_from_buffer(buf);
+        int unscaled_w = 0;
+        int unscaled_h = 0;
+
+        if (ss && ss->surface) {
+            if (ss->surface == d->root && d->geom_w > 0 && d->geom_h > 0) {
+                unscaled_w = d->geom_w;
+                unscaled_h = d->geom_h;
+            } else {
+                unscaled_w = ss->surface->current.width;
+                unscaled_h = ss->surface->current.height;
+            }
+
+            // If this is a subsurface, scale its tree node position relative to parent
+            if (ss->surface != d->root) {
+                struct wlr_subsurface* sub = wlr_subsurface_try_from_wlr_surface(ss->surface);
+                if (sub && buf->node.parent) {
+                    int px = static_cast<int>(std::round(sub->current.x * d->scale));
+                    int py = static_cast<int>(std::round(sub->current.y * d->scale));
+                    wlr_scene_node_set_position(&buf->node.parent->node, px, py);
+                }
+            }
+        } else if (buf->buffer) {
+            unscaled_w = buf->buffer->width;
+            unscaled_h = buf->buffer->height;
+        }
+
+        if (unscaled_w > 0 && unscaled_h > 0) {
+            int sw = std::max(1, static_cast<int>(std::round(unscaled_w * d->scale)));
+            int sh = std::max(1, static_cast<int>(std::round(unscaled_h * d->scale)));
             wlr_scene_buffer_set_dest_size(buf, sw, sh);
         }
-    }, &scale);
+    }, &data);
 }
 
 void View::focus() {
@@ -1560,6 +1765,16 @@ void View::handle_map(struct wl_listener* listener, void* data) {
                 wlr_foreign_toplevel_handle_v1_output_enter(view->m_foreign_toplevel, out->get_wlr_output());
             }
         }
+    }
+
+    if (view->m_ext_foreign_toplevel) {
+        std::string title = view->get_title();
+        std::string app_id = view->get_app_id();
+        struct wlr_ext_foreign_toplevel_handle_v1_state state = {
+            .title = title.c_str(),
+            .app_id = app_id.c_str(),
+        };
+        wlr_ext_foreign_toplevel_handle_v1_update_state(view->m_ext_foreign_toplevel, &state);
     }
 
     if (view->m_type == ViewType::XWayland) {
@@ -1987,6 +2202,14 @@ void View::handle_set_title(struct wl_listener* listener, void* data) {
     if (view->m_foreign_toplevel && !title.empty()) {
         wlr_foreign_toplevel_handle_v1_set_title(view->m_foreign_toplevel, title.c_str());
     }
+    if (view->m_ext_foreign_toplevel) {
+        std::string app_id = view->get_app_id();
+        struct wlr_ext_foreign_toplevel_handle_v1_state state = {
+            .title = title.c_str(),
+            .app_id = app_id.c_str(),
+        };
+        wlr_ext_foreign_toplevel_handle_v1_update_state(view->m_ext_foreign_toplevel, &state);
+    }
     if (view->m_server && view->m_server->get_ipc_server()) {
         std::string payload = "{\"action\":\"title\",\"id\":" + std::to_string(view->m_id) +
             ",\"title\":\"" + ipc::escape_json(title) + "\"}";
@@ -1999,6 +2222,14 @@ void View::handle_set_app_id(struct wl_listener* listener, void* data) {
     std::string app_id = view->get_app_id();
     if (view->m_foreign_toplevel && !app_id.empty()) {
         wlr_foreign_toplevel_handle_v1_set_app_id(view->m_foreign_toplevel, app_id.c_str());
+    }
+    if (view->m_ext_foreign_toplevel) {
+        std::string title = view->get_title();
+        struct wlr_ext_foreign_toplevel_handle_v1_state state = {
+            .title = title.c_str(),
+            .app_id = app_id.c_str(),
+        };
+        wlr_ext_foreign_toplevel_handle_v1_update_state(view->m_ext_foreign_toplevel, &state);
     }
 }
 
@@ -2041,6 +2272,7 @@ void View::handle_scene_tree_destroy(struct wl_listener* listener, void* data) {
     view->m_border_scene_buffer = nullptr;
     view->m_blur_node = nullptr;
     view->m_shadow_node = nullptr;
+    view->m_subsurfaces.clear();
 }
 
 void View::handle_new_popup(struct wl_listener* listener, void* data) {
@@ -2179,6 +2411,14 @@ void View::handle_xwayland_set_class(struct wl_listener* listener, void* data) {
     std::string app_id = view->get_app_id();
     if (view->m_foreign_toplevel && !app_id.empty()) {
         wlr_foreign_toplevel_handle_v1_set_app_id(view->m_foreign_toplevel, app_id.c_str());
+    }
+    if (view->m_ext_foreign_toplevel) {
+        std::string title = view->get_title();
+        struct wlr_ext_foreign_toplevel_handle_v1_state state = {
+            .title = title.c_str(),
+            .app_id = app_id.c_str(),
+        };
+        wlr_ext_foreign_toplevel_handle_v1_update_state(view->m_ext_foreign_toplevel, &state);
     }
 }
 

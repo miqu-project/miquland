@@ -1376,6 +1376,36 @@ void AnimationManager::cancel_for_node(struct wlr_scene_node* node) {
     m_animations.erase(it, m_animations.end());
 }
 
+uint64_t AnimationManager::schedule_generic_animation(double duration_ms,
+                                                      std::function<float(float)> easing_fn,
+                                                      std::function<void(float progress)> on_step,
+                                                      std::function<void()> on_complete) {
+    GenericAnimation anim;
+    anim.id = m_next_id++;
+    anim.duration_ms = std::max(1.0, duration_ms);
+    anim.start_time_ms = get_current_time_ms();
+    anim.easing_fn = std::move(easing_fn);
+    anim.on_step = std::move(on_step);
+    anim.on_complete = std::move(on_complete);
+    anim.completed = false;
+
+    if (anim.on_step) {
+        float init_val = anim.easing_fn ? anim.easing_fn(0.0f) : 0.0f;
+        anim.on_step(init_val);
+    }
+
+    m_generic_animations.push_back(std::move(anim));
+    schedule_next_frame();
+    return m_generic_animations.back().id;
+}
+
+void AnimationManager::cancel_generic_animation(uint64_t id) {
+    if (id == 0) return;
+    auto it = std::remove_if(m_generic_animations.begin(), m_generic_animations.end(),
+                             [id](const GenericAnimation& a) { return a.id == id; });
+    m_generic_animations.erase(it, m_generic_animations.end());
+}
+
 void AnimationManager::clear() {
     if (m_swipe_state.active) {
         if (m_swipe_state.current_ws && m_swipe_state.current_ws->get_scene_tree()) {
@@ -1418,6 +1448,7 @@ void AnimationManager::clear() {
         }
     }
     m_closing_layer_animations.clear();
+    m_generic_animations.clear();
 }
 
 static inline float calculate_anim_progress(double now_ms, double start_time_ms, double duration_ms, bool& out_completed) {
@@ -1670,12 +1701,33 @@ void AnimationManager::tick(double now_ms) {
     });
     m_closing_layer_animations.erase(it_closing, m_closing_layer_animations.end());
 
+    // 5b. Generic / Plugin animations
+    for (auto& anim : m_generic_animations) {
+        if (anim.completed) continue;
+        bool done = false;
+        float progress = calculate_anim_progress(now_ms, anim.start_time_ms, anim.duration_ms, done);
+        float eased = anim.easing_fn ? anim.easing_fn(progress) : progress;
+        if (anim.on_step) {
+            anim.on_step(eased);
+        }
+        if (done) {
+            anim.completed = true;
+            if (anim.on_complete) {
+                completions.push_back(anim.on_complete);
+            }
+        }
+    }
+    auto it_gen = std::remove_if(m_generic_animations.begin(), m_generic_animations.end(), [](const GenericAnimation& a) {
+        return a.completed;
+    });
+    m_generic_animations.erase(it_gen, m_generic_animations.end());
+
     // 6. Invoke completions
     for (auto& cb : completions) {
         if (cb) cb();
     }
 
-    if (has_active_animations()) {
+    if (has_active_animations() || !completions.empty()) {
         schedule_next_frame();
     }
 }

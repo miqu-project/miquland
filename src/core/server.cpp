@@ -89,6 +89,7 @@ Server::~Server() {
     if (!wl_list_empty(&m_new_xdg_decoration_listener.link)) wl_list_remove(&m_new_xdg_decoration_listener.link);
     if (!wl_list_empty(&m_xdg_activation_request_activate_listener.link)) wl_list_remove(&m_xdg_activation_request_activate_listener.link);
     if (!wl_list_empty(&m_cursor_shape_request_set_shape_listener.link)) wl_list_remove(&m_cursor_shape_request_set_shape_listener.link);
+    if (!wl_list_empty(&m_foreign_toplevel_capture_request_listener.link)) wl_list_remove(&m_foreign_toplevel_capture_request_listener.link);
 
     if (m_wlr_allocator) wlr_allocator_destroy(m_wlr_allocator);
     if (m_wlr_renderer) wlr_renderer_destroy(m_wlr_renderer);
@@ -208,6 +209,16 @@ bool Server::init() {
 
     // Protocols
     m_screencopy_manager = wlr_screencopy_manager_v1_create(m_wl_display);
+
+    m_ext_image_copy_capture_manager = wlr_ext_image_copy_capture_manager_v1_create(m_wl_display, 1);
+    m_ext_output_image_capture_source_manager = wlr_ext_output_image_capture_source_manager_v1_create(m_wl_display, 1);
+    m_ext_foreign_toplevel_list = wlr_ext_foreign_toplevel_list_v1_create(m_wl_display, 1);
+    m_ext_foreign_toplevel_image_capture_source_manager = wlr_ext_foreign_toplevel_image_capture_source_manager_v1_create(m_wl_display, 1);
+    if (m_ext_foreign_toplevel_image_capture_source_manager) {
+        m_foreign_toplevel_capture_request_listener.notify = handle_foreign_toplevel_capture_request;
+        wl_signal_add(&m_ext_foreign_toplevel_image_capture_source_manager->events.new_request,
+                      &m_foreign_toplevel_capture_request_listener);
+    }
 
     m_gamma_control_manager = wlr_gamma_control_manager_v1_create(m_wl_display);
     if (m_gamma_control_manager) {
@@ -504,17 +515,50 @@ void Server::handle_new_xdg_toplevel(struct wl_listener* listener, void* data) {
     server->add_view(std::move(view));
 }
 
-void Server::run() {
-    if (!wlr_backend_start(m_wlr_backend)) {
-        log_error("Failed to start backend");
+void Server::handle_foreign_toplevel_capture_request(struct wl_listener* listener, void* data) {
+    Server* server = wl_container_of(listener, server, m_foreign_toplevel_capture_request_listener);
+    auto* request = static_cast<struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request*>(data);
+    if (!request || !request->toplevel_handle) {
         return;
+    }
+
+    auto* view = static_cast<View*>(request->toplevel_handle->data);
+    if (!view || !view->get_scene_tree()) {
+        return;
+    }
+
+    auto* source = wlr_ext_image_capture_source_v1_create_with_scene_node(
+        &view->get_scene_tree()->node,
+        server->get_event_loop(),
+        server->get_allocator(),
+        server->get_renderer()
+    );
+    if (source) {
+        wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accept(request, source);
+    }
+}
+
+void Server::handle_autostart_idle(void* data) {
+    auto* server = static_cast<Server*>(data);
+    if (!server) return;
+    server->dispatch_autostart();
+}
+
+void Server::dispatch_autostart() {
+    log_info("Dispatching session autostart commands on Wayland event loop");
+
+    // Ensure display outputs are configured and layers are arranged
+    if (m_output_manager) {
+        auto* primary = m_output_manager->get_primary_output();
+        if (primary && primary->get_wlr_output()) {
+            arrange_layers(primary->get_wlr_output());
+        }
     }
 
     if (!m_startup_cmd.empty() && m_input_manager) {
         m_input_manager->spawn_command(m_startup_cmd.c_str());
     }
 
-    // Autostart commands from configuration (spawned once backend and outputs are active)
     if (m_input_manager) {
         for (const auto& cmd : Config::get().get_exec_once_commands()) {
             m_input_manager->spawn_command(cmd.c_str());
@@ -523,6 +567,18 @@ void Server::run() {
             m_input_manager->spawn_command(cmd.c_str());
         }
     }
+}
+
+void Server::run() {
+    if (!wlr_backend_start(m_wlr_backend)) {
+        log_error("Failed to start backend");
+        return;
+    }
+
+    // Schedule autostart dispatch on the first idle iteration of the Wayland event loop.
+    // This guarantees that wl_display_run is actively spinning, DRM outputs have finished
+    // initialization and modesetting, and the Wayland socket is ready to accept client connections.
+    wl_event_loop_add_idle(m_wl_event_loop, handle_autostart_idle, this);
 
     log_info("Running Wayland event loop");
     wl_display_run(m_wl_display);
@@ -938,6 +994,13 @@ void Server::arrange_layers(struct wlr_output* output) {
 void Server::handle_new_layer_shell_surface(struct wl_listener* listener, void* data) {
     Server* server = wl_container_of(listener, server, m_new_layer_shell_surface_listener);
     auto* wlr_layer_surface = static_cast<struct wlr_layer_surface_v1*>(data);
+
+    if (!wlr_layer_surface->output && server->get_output_manager()) {
+        auto* out = server->get_output_manager()->get_primary_output();
+        if (out) {
+            wlr_layer_surface->output = out->get_wlr_output();
+        }
+    }
 
     auto layer_surface = std::make_unique<LayerSurface>(server, wlr_layer_surface);
     server->add_layer_surface(std::move(layer_surface));

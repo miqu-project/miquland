@@ -34,6 +34,16 @@ struct NodeAnimation {
     bool completed = false;
 };
 
+struct GenericAnimation {
+    uint64_t id = 0;
+    double start_time_ms = 0.0;
+    double duration_ms = 0.0;
+    std::function<float(float)> easing_fn;
+    std::function<void(float progress)> on_step;
+    std::function<void()> on_complete;
+    bool completed = false;
+};
+
 struct ViewAnimation {
     uint64_t id = 0;
     View* view = nullptr;
@@ -162,6 +172,13 @@ public:
     bool is_view_geometry_animating(View* view) const;
     struct wlr_box get_view_current_box(View* view, const struct wlr_box& fallback) const;
 
+    // Generic / Plugin animations
+    uint64_t schedule_generic_animation(double duration_ms,
+                                        std::function<float(float)> easing_fn,
+                                        std::function<void(float progress)> on_step,
+                                        std::function<void()> on_complete = nullptr);
+    void cancel_generic_animation(uint64_t id);
+
     // Lifecycle cancellation
     void cancel_for_view(View* view);
     void cancel_for_workspace(Workspace* ws);
@@ -175,6 +192,7 @@ public:
         return !m_animations.empty() || !m_view_animations.empty() ||
                !m_geometry_animations.empty() || !m_layer_animations.empty() ||
                !m_closing_layer_animations.empty() ||
+               !m_generic_animations.empty() ||
                m_swipe_state.active;
     }
     void schedule_next_frame();
@@ -205,6 +223,7 @@ private:
     std::vector<ViewGeometryAnimation> m_geometry_animations;
     std::vector<LayerAnimation> m_layer_animations;
     std::vector<ClosingLayerAnimation> m_closing_layer_animations;
+    std::vector<GenericAnimation> m_generic_animations;
     WorkspaceSwipeState m_swipe_state;
     uint64_t m_next_id = 1;
 };

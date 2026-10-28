@@ -4,6 +4,7 @@
 #include "core/output.hpp"
 #include "core/config/config.hpp"
 #include "core/common/util.hpp"
+#include "core/animation/animation_manager.hpp"
 
 #include <dlfcn.h>
 #include <iostream>
@@ -62,12 +63,41 @@ void PluginManager::register_pointer_motion_hook(std::function<bool(double lx, d
     m_pointer_motion_hooks.push_back(std::move(hook));
 }
 
+void PluginManager::register_pointer_axis_hook(std::function<bool(double lx, double ly, double delta_x, double delta_y)> hook) {
+    m_pointer_axis_hooks.push_back(std::move(hook));
+}
+
 void PluginManager::register_key_hook(std::function<bool(uint32_t keysym, uint32_t modifiers, bool pressed)> hook) {
     m_key_hooks.push_back(std::move(hook));
 }
 
 void PluginManager::register_view_destroy_hook(std::function<void(View*)> hook) {
     m_view_destroy_hooks.push_back(std::move(hook));
+}
+
+uint64_t PluginManager::schedule_animation(double duration_ms,
+                                          std::function<float(float)> easing_fn,
+                                          std::function<void(float progress)> on_step,
+                                          std::function<void()> on_complete) {
+    if (m_server && m_server->get_animation_manager()) {
+        return m_server->get_animation_manager()->schedule_generic_animation(
+            duration_ms, std::move(easing_fn), std::move(on_step), std::move(on_complete));
+    }
+    if (on_step) on_step(1.0f);
+    if (on_complete) on_complete();
+    return 0;
+}
+
+void PluginManager::cancel_animation(uint64_t id) {
+    if (m_server && m_server->get_animation_manager()) {
+        m_server->get_animation_manager()->cancel_generic_animation(id);
+    }
+}
+
+void PluginManager::schedule_frame() {
+    if (m_server && m_server->get_animation_manager()) {
+        m_server->get_animation_manager()->schedule_next_frame();
+    }
 }
 
 bool PluginManager::load_plugin(const std::string& path) {
@@ -142,6 +172,7 @@ void PluginManager::unload_all() {
     m_dispatchers.clear();
     m_pointer_button_hooks.clear();
     m_pointer_motion_hooks.clear();
+    m_pointer_axis_hooks.clear();
     m_key_hooks.clear();
     m_view_destroy_hooks.clear();
 }
@@ -193,6 +224,16 @@ bool PluginManager::dispatch_pointer_motion(double lx, double ly) {
     PluginDispatchGuard guard(m_in_plugin_dispatch);
     for (auto it = m_pointer_motion_hooks.rbegin(); it != m_pointer_motion_hooks.rend(); ++it) {
         if ((*it)(lx, ly)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool PluginManager::dispatch_pointer_axis(double lx, double ly, double delta_x, double delta_y) {
+    PluginDispatchGuard guard(m_in_plugin_dispatch);
+    for (auto it = m_pointer_axis_hooks.rbegin(); it != m_pointer_axis_hooks.rend(); ++it) {
+        if ((*it)(lx, ly, delta_x, delta_y)) {
             return true;
         }
     }

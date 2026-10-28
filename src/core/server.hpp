@@ -26,6 +26,9 @@ public:
     void run();
     void terminate();
 
+    void dispatch_autostart();
+    static void handle_autostart_idle(void* data);
+
     void set_startup_command(const std::string& cmd) { m_startup_cmd = cmd; }
 
     struct wl_display* get_display() const { return m_wl_display; }
@@ -86,6 +89,8 @@ public:
     struct wlr_cursor_shape_manager_v1* get_cursor_shape_manager() const { return m_cursor_shape_manager; }
     struct wlr_relative_pointer_manager_v1* get_relative_pointer_manager() const { return m_relative_pointer_manager; }
     struct wlr_pointer_constraints_v1* get_pointer_constraints() const { return m_pointer_constraints; }
+    struct wlr_ext_image_copy_capture_manager_v1* get_ext_image_copy_capture_manager() const { return m_ext_image_copy_capture_manager; }
+    struct wlr_ext_foreign_toplevel_list_v1* get_ext_foreign_toplevel_list() const { return m_ext_foreign_toplevel_list; }
 
     void set_focused_view(View* view);
     View* get_focused_view() const { return m_focused_view; }
@@ -107,6 +112,7 @@ private:
     static void handle_ext_workspace_commit(struct wl_listener* listener, void* data);
     static void handle_xwayland_ready(struct wl_listener* listener, void* data);
     static void handle_xwayland_new_surface(struct wl_listener* listener, void* data);
+    static void handle_foreign_toplevel_capture_request(struct wl_listener* listener, void* data);
     static int handle_config_inotify(int fd, uint32_t mask, void* data);
     static int handle_config_reload_timer(void* data);
     static int handle_shutdown_timer(void* data);
@@ -155,6 +161,11 @@ private:
     struct wlr_viewporter* m_viewporter = nullptr;
     struct wlr_fractional_scale_manager_v1* m_fractional_scale_manager = nullptr;
     struct wlr_tearing_control_manager_v1* m_tearing_manager = nullptr;
+    struct wlr_ext_image_copy_capture_manager_v1* m_ext_image_copy_capture_manager = nullptr;
+    struct wlr_ext_output_image_capture_source_manager_v1* m_ext_output_image_capture_source_manager = nullptr;
+    struct wlr_ext_foreign_toplevel_list_v1* m_ext_foreign_toplevel_list = nullptr;
+    struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1* m_ext_foreign_toplevel_image_capture_source_manager = nullptr;
+    struct wl_listener m_foreign_toplevel_capture_request_listener;
     size_t m_idle_inhibitor_count = 0;
 
     const char* m_socket_name = nullptr;

@@ -25,6 +25,7 @@ public:
 
 private:
     static void handle_frame(struct wl_listener* listener, void* data);
+    static void handle_needs_frame(struct wl_listener* listener, void* data);
     static void handle_request_state(struct wl_listener* listener, void* data);
     static void handle_destroy(struct wl_listener* listener, void* data);
 
@@ -34,6 +35,7 @@ private:
     struct wlr_box m_usable_area = { 0, 0, 0, 0 };
 
     struct wl_listener m_frame_listener;
+    struct wl_listener m_needs_frame_listener;
     struct wl_listener m_request_state_listener;
     struct wl_listener m_destroy_listener;
 };

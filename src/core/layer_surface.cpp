@@ -398,6 +398,10 @@ void LayerSurface::reset_animation_transform() {
     }, nullptr);
     update_blur();
     update_shadow();
+
+    if (m_wlr_layer_surface && m_wlr_layer_surface->output) {
+        wlr_output_schedule_frame(m_wlr_layer_surface->output);
+    }
 }
 
 void LayerSurface::handle_map(struct wl_listener* listener, void* data) {
@@ -537,6 +541,10 @@ void LayerSurface::handle_surface_commit(struct wl_listener* listener, void* dat
             }
         } else if (surface->m_server->get_focused_layer_surface() == surface) {
             surface->m_server->focus_layer_surface(nullptr);
+        }
+
+        if (wlr_surface->output) {
+            wlr_output_schedule_frame(wlr_surface->output);
         }
     }
 }

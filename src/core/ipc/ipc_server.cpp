@@ -5,6 +5,7 @@
 #include "core/output.hpp"
 #include "core/input/input.hpp"
 #include "core/config/config.hpp"
+#include "core/plugin_manager.hpp"
 #include "core/common/util.hpp"
 
 #include <sys/socket.h>
@@ -739,6 +740,10 @@ std::string IpcServer::handle_dispatch(const std::string& args) {
     if (sub_action == "menu" || sub_action == "app_launcher") {
         if (m_server->get_input_manager()) m_server->get_input_manager()->spawn_command("miqulauncher");
         return R"({"status":"ok","action":"menu"})";
+    }
+
+    if (m_server->get_plugin_manager() && m_server->get_plugin_manager()->execute_dispatcher(sub_action)) {
+        return R"({"status":"ok","action":")" + ipc::escape_json(sub_action) + "\"}";
     }
 
     return R"({"status":"error","message":"Unknown dispatch action: )" + ipc::escape_json(args) + "\"}";

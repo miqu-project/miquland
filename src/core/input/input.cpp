@@ -1143,6 +1143,14 @@ void InputManager::handle_cursor_axis(struct wl_listener* listener, void* data) 
     InputManager* manager = wl_container_of(listener, manager, m_cursor_axis_listener);
     auto* event = static_cast<struct wlr_pointer_axis_event*>(data);
 
+    if (manager->m_server->get_plugin_manager()) {
+        double dx = (event->orientation == WL_POINTER_AXIS_HORIZONTAL_SCROLL) ? event->delta : 0.0;
+        double dy = (event->orientation == WL_POINTER_AXIS_VERTICAL_SCROLL) ? event->delta : 0.0;
+        if (manager->m_server->get_plugin_manager()->dispatch_pointer_axis(manager->m_cursor->x, manager->m_cursor->y, dx, dy)) {
+            return;
+        }
+    }
+
     wlr_seat_pointer_notify_axis(manager->m_seat, event->time_msec, event->orientation,
         event->delta, event->delta_discrete, event->source, event->relative_direction);
 }

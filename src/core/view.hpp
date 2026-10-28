@@ -7,6 +7,7 @@
 #include <memory>
 
 struct wlr_xwayland_surface;
+struct wlr_subsurface;
 
 namespace miquland {
 
@@ -78,6 +79,7 @@ public:
     struct wlr_scene_blur* get_blur_node() const { return m_blur_node; }
     struct wlr_scene_shadow* get_shadow_node() const { return m_shadow_node; }
     struct wlr_foreign_toplevel_handle_v1* get_foreign_toplevel() const { return m_foreign_toplevel; }
+    struct wlr_ext_foreign_toplevel_handle_v1* get_ext_foreign_toplevel() const { return m_ext_foreign_toplevel; }
     bool is_mapped() const { return m_mapped; }
     bool is_override_redirect() const {
         if (m_type == ViewType::XWayland && m_xwayland_surface) {
@@ -151,6 +153,7 @@ private:
     struct wlr_xdg_toplevel* m_xdg_toplevel = nullptr;
     struct wlr_xwayland_surface* m_xwayland_surface = nullptr;
     struct wlr_foreign_toplevel_handle_v1* m_foreign_toplevel = nullptr;
+    struct wlr_ext_foreign_toplevel_handle_v1* m_ext_foreign_toplevel = nullptr;
 
     struct wlr_scene_tree* m_scene_tree = nullptr;
     struct wlr_scene_buffer* m_border_scene_buffer = nullptr;
@@ -203,6 +206,7 @@ private:
     struct wl_listener m_foreign_request_activate_listener;
     struct wl_listener m_foreign_request_close_listener;
     struct wl_listener m_new_popup_listener;
+    struct wl_listener m_new_subsurface_listener;
     struct wl_listener m_scene_tree_destroy_listener;
 
     // XWayland specific listeners
@@ -215,6 +219,27 @@ private:
     struct wl_listener m_set_geometry_listener;
     struct wl_listener m_set_class_listener;
     struct wl_listener m_set_override_redirect_listener;
+
+    struct SubsurfaceTracker {
+        View* view = nullptr;
+        struct wlr_subsurface* subsurface = nullptr;
+        struct wl_listener commit_listener;
+        struct wl_listener destroy_listener;
+        struct wl_listener new_subsurface_listener;
+
+        SubsurfaceTracker(View* v, struct wlr_subsurface* sub);
+        ~SubsurfaceTracker();
+    };
+
+    void register_subsurface(struct wlr_subsurface* sub);
+    void unregister_subsurface(struct wlr_subsurface* sub);
+    void scan_existing_subsurfaces(struct wlr_surface* surface);
+    static void handle_new_subsurface(struct wl_listener* listener, void* data);
+    static void handle_subsurface_commit(struct wl_listener* listener, void* data);
+    static void handle_subsurface_destroy(struct wl_listener* listener, void* data);
+    static void handle_subsurface_new_subsurface(struct wl_listener* listener, void* data);
+
+    std::vector<std::unique_ptr<SubsurfaceTracker>> m_subsurfaces;
 
     View* m_parent_view = nullptr;
     bool m_is_dialog = false;
