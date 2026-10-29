@@ -314,11 +314,11 @@ void LayerSurface::apply_animation_transform(int offset_x, int offset_y, double 
     int cur_y = m_geo_y + offset_y;
 
     if (center_anchor) {
-        if (scale_x < 0.999) {
+        if (std::abs(scale_x - 1.0) > 0.001) {
             double cur_w = std::max(1.0, static_cast<double>(base_w) * scale_x);
             cur_x += static_cast<int>(std::round((static_cast<double>(base_w) - cur_w) / 2.0));
         }
-        if (scale_y < 0.999) {
+        if (std::abs(scale_y - 1.0) > 0.001) {
             double cur_h = std::max(1.0, static_cast<double>(base_h) * scale_y);
             cur_y += static_cast<int>(std::round((static_cast<double>(base_h) - cur_h) / 2.0));
         }
@@ -334,7 +334,7 @@ void LayerSurface::apply_animation_transform(int offset_x, int offset_y, double 
 
     wlr_scene_node_for_each_buffer(&m_scene_layer_surface->tree->node, [](struct wlr_scene_buffer* buf, int sx, int sy, void* user_data) {
         auto* d = static_cast<BufferAnimData*>(user_data);
-        if ((d->scale_x < 0.999 || d->scale_y < 0.999) && buf->buffer) {
+        if ((std::abs(d->scale_x - 1.0) > 0.001 || std::abs(d->scale_y - 1.0) > 0.001) && buf->buffer) {
             int sw = std::max(1, static_cast<int>(std::round(static_cast<double>(buf->buffer->width) * d->scale_x)));
             int sh = std::max(1, static_cast<int>(std::round(static_cast<double>(buf->buffer->height) * d->scale_y)));
             wlr_scene_buffer_set_dest_size(buf, sw, sh);

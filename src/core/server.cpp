@@ -301,6 +301,7 @@ bool Server::init() {
     }
 
     spawn_async_command({"systemctl", "--user", "import-environment", "WAYLAND_DISPLAY", "DISPLAY", "XDG_CURRENT_DESKTOP", "XCURSOR_THEME", "XCURSOR_SIZE", "MIQULAND_SOCKET"});
+    spawn_async_command({"dbus-update-activation-environment", "--systemd", "WAYLAND_DISPLAY", "DISPLAY", "XDG_CURRENT_DESKTOP", "XCURSOR_THEME", "XCURSOR_SIZE", "MIQULAND_SOCKET"});
 
     setup_config_watcher();
 
@@ -1017,6 +1018,7 @@ void Server::handle_xwayland_ready(struct wl_listener* listener, void* data) {
         setenv("DISPLAY", server->m_xwayland->display_name, 1);
         log_info("Xwayland server is ready on DISPLAY=" + std::string(server->m_xwayland->display_name));
         spawn_async_command({"systemctl", "--user", "import-environment", "DISPLAY"});
+        spawn_async_command({"dbus-update-activation-environment", "--systemd", "DISPLAY"});
     }
 }
 
