@@ -461,10 +461,6 @@ void Server::reload_config() {
         m_output_manager->reapply_all_configs();
     }
 
-    if (m_input_manager) {
-        m_input_manager->reapply_device_config();
-    }
-
     for (const auto& v : m_views) {
         if (v && v->is_mapped()) {
             v->update_frame();
@@ -485,19 +481,13 @@ void Server::reload_config() {
     if (m_output_manager) {
         for (const auto& out : m_output_manager->get_outputs()) {
             if (out && out->get_wlr_output()) {
-                arrange_layers(out->get_wlr_output());
                 wlr_output_schedule_frame(out->get_wlr_output());
             }
         }
     }
 
-    if (m_workspace_manager) {
-        m_workspace_manager->recalculate_layout();
-    }
-
     if (m_plugin_manager) {
-        m_plugin_manager->unload_all();
-        m_plugin_manager->load_configured_plugins();
+        m_plugin_manager->sync_configured_plugins();
     }
 
     for (const auto& cmd : Config::get().get_exec_commands()) {

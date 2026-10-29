@@ -44,12 +44,22 @@ void Output::apply_config() {
         return;
     }
 
-    wlr_output_state_set_enabled(&state, true);
+    bool needs_commit = false;
+    if (!m_wlr_output->enabled) {
+        wlr_output_state_set_enabled(&state, true);
+        needs_commit = true;
+    }
 
     // Mode resolution and refresh rate
     struct wlr_output_mode* best_mode = nullptr;
+    int target_width = 0;
+    int target_height = 0;
+    int32_t target_refresh_mHz = 0;
+
     if (rule && rule->width > 0 && rule->height > 0) {
-        int32_t target_refresh_mHz = (int32_t)(rule->refresh_rate * 1000.0);
+        target_width = rule->width;
+        target_height = rule->height;
+        target_refresh_mHz = (int32_t)(rule->refresh_rate * 1000.0);
         struct wlr_output_mode* m;
         wl_list_for_each(m, &m_wlr_output->modes, link) {
             if (m->width == rule->width && m->height == rule->height) {
@@ -65,30 +75,48 @@ void Output::apply_config() {
                 }
             }
         }
-        if (best_mode) {
-            wlr_output_state_set_mode(&state, best_mode);
-        } else {
-            wlr_output_state_set_custom_mode(&state, rule->width, rule->height, target_refresh_mHz);
-        }
     } else {
-        struct wlr_output_mode* mode = wlr_output_preferred_mode(m_wlr_output);
-        if (mode != nullptr) {
-            wlr_output_state_set_mode(&state, mode);
+        best_mode = wlr_output_preferred_mode(m_wlr_output);
+        if (best_mode) {
+            target_width = best_mode->width;
+            target_height = best_mode->height;
+            target_refresh_mHz = best_mode->refresh;
+        }
+    }
+
+    if (best_mode) {
+        if (m_wlr_output->current_mode != best_mode) {
+            wlr_output_state_set_mode(&state, best_mode);
+            needs_commit = true;
+        }
+    } else if (target_width > 0 && target_height > 0) {
+        if (m_wlr_output->width != target_width || m_wlr_output->height != target_height ||
+            (target_refresh_mHz > 0 && std::abs(m_wlr_output->refresh - target_refresh_mHz) >= 1000)) {
+            wlr_output_state_set_custom_mode(&state, target_width, target_height, target_refresh_mHz);
+            needs_commit = true;
         }
     }
 
     // Scale
     float scale = (rule && rule->scale > 0.0) ? (float)rule->scale : 1.0f;
-    wlr_output_state_set_scale(&state, scale);
-    if (m_server && m_server->get_input_manager()) {
-        m_server->get_input_manager()->load_cursor_scale(scale);
+    if (std::abs(m_wlr_output->scale - scale) > 0.001f) {
+        wlr_output_state_set_scale(&state, scale);
+        needs_commit = true;
+        if (m_server && m_server->get_input_manager()) {
+            m_server->get_input_manager()->load_cursor_scale(scale);
+        }
     }
 
     // Transform
     enum wl_output_transform transform = rule ? rule->transform : WL_OUTPUT_TRANSFORM_NORMAL;
-    wlr_output_state_set_transform(&state, transform);
+    if (m_wlr_output->transform != transform) {
+        wlr_output_state_set_transform(&state, transform);
+        needs_commit = true;
+    }
 
-    wlr_output_commit_state(m_wlr_output, &state);
+    if (needs_commit || !m_scene_output) {
+        wlr_output_commit_state(m_wlr_output, &state);
+    }
     wlr_output_state_finish(&state);
 
     m_usable_area = {
@@ -104,9 +132,12 @@ void Output::apply_config() {
 
     struct wlr_output_layout* layout = m_server->get_output_manager()->get_layout();
     if (layout) {
+        struct wlr_output_layout_output* l_out = wlr_output_layout_get(layout, m_wlr_output);
         if (rule && rule->x >= 0 && rule->y >= 0) {
-            wlr_output_layout_add(layout, m_wlr_output, rule->x, rule->y);
-        } else {
+            if (!l_out || l_out->x != rule->x || l_out->y != rule->y) {
+                wlr_output_layout_add(layout, m_wlr_output, rule->x, rule->y);
+            }
+        } else if (!l_out) {
             wlr_output_layout_add_auto(layout, m_wlr_output);
         }
     }

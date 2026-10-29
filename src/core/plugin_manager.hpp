@@ -63,6 +63,7 @@ public:
     bool load_plugin(const std::string& path);
     void unload_all();
     void load_configured_plugins();
+    void sync_configured_plugins();
 
     // Event & Dispatcher execution
     bool execute_dispatcher(const std::string& name);

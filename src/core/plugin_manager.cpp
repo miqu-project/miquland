@@ -231,6 +231,23 @@ void PluginManager::load_configured_plugins() {
     }
 }
 
+void PluginManager::sync_configured_plugins() {
+    const auto& configured = Config::get().get_plugins();
+    bool changed = (m_loaded_plugins.size() != configured.size());
+    if (!changed) {
+        for (size_t i = 0; i < configured.size(); ++i) {
+            if (m_loaded_plugins[i].path != configured[i]) {
+                changed = true;
+                break;
+            }
+        }
+    }
+    if (changed) {
+        unload_all();
+        load_configured_plugins();
+    }
+}
+
 bool PluginManager::execute_dispatcher(const std::string& name) {
     PluginDispatchGuard guard(m_in_plugin_dispatch);
     auto it = m_dispatchers.find(name);
