@@ -478,6 +478,9 @@ void WorkspaceManager::switch_to_workspace(size_t id, View* focus_view) {
         if (focus_view) {
             focus_view->focus();
         }
+        if (m_server && m_server->get_input_manager()) {
+            m_server->get_input_manager()->recheck_cursor_focus();
+        }
         return;
     }
 

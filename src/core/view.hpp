@@ -143,6 +143,7 @@ private:
     static void handle_xwayland_set_override_redirect(struct wl_listener* listener, void* data);
 
     void setup_foreign_toplevel();
+    void destroy_foreign_toplevel();
     void update_blur();
     void sync_shadow_geometry(int w, int h, int r, float sigma, double ox, double oy);
 

@@ -5,6 +5,7 @@
 #include "core/config/config.hpp"
 #include "core/common/util.hpp"
 #include "core/animation/animation_manager.hpp"
+#include "core/input/input.hpp"
 
 #include <dlfcn.h>
 #include <iostream>
@@ -69,6 +70,32 @@ void PluginManager::register_pointer_axis_hook(std::function<bool(double lx, dou
 
 void PluginManager::register_key_hook(std::function<bool(uint32_t keysym, uint32_t modifiers, bool pressed)> hook) {
     m_key_hooks.push_back(std::move(hook));
+}
+
+void PluginManager::register_touchpad_swipe_hook(std::function<bool(const SwipeEvent& event)> hook) {
+    m_touchpad_swipe_hooks.push_back(std::move(hook));
+}
+
+void PluginManager::register_touch_gesture_hook(std::function<bool(const TouchGestureEvent& event)> hook) {
+    m_touch_gesture_hooks.push_back(std::move(hook));
+}
+
+void PluginManager::set_cursor_icon(const std::string& name) {
+    if (m_server && m_server->get_input_manager()) {
+        m_server->get_input_manager()->set_cursor_icon(name.c_str());
+    }
+}
+
+void PluginManager::clear_pointer_focus() {
+    if (m_server && m_server->get_input_manager() && m_server->get_input_manager()->get_seat()) {
+        wlr_seat_pointer_notify_clear_focus(m_server->get_input_manager()->get_seat());
+    }
+}
+
+void PluginManager::recheck_cursor_focus() {
+    if (m_server && m_server->get_input_manager()) {
+        m_server->get_input_manager()->recheck_cursor_focus();
+    }
 }
 
 void PluginManager::register_view_destroy_hook(std::function<void(View*)> hook) {
@@ -174,6 +201,8 @@ void PluginManager::unload_all() {
     m_pointer_motion_hooks.clear();
     m_pointer_axis_hooks.clear();
     m_key_hooks.clear();
+    m_touchpad_swipe_hooks.clear();
+    m_touch_gesture_hooks.clear();
     m_view_destroy_hooks.clear();
 }
 
@@ -244,6 +273,26 @@ bool PluginManager::dispatch_key(uint32_t keysym, uint32_t modifiers, bool press
     PluginDispatchGuard guard(m_in_plugin_dispatch);
     for (auto it = m_key_hooks.rbegin(); it != m_key_hooks.rend(); ++it) {
         if ((*it)(keysym, modifiers, pressed)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool PluginManager::dispatch_touchpad_swipe(const SwipeEvent& event) {
+    PluginDispatchGuard guard(m_in_plugin_dispatch);
+    for (auto it = m_touchpad_swipe_hooks.rbegin(); it != m_touchpad_swipe_hooks.rend(); ++it) {
+        if ((*it)(event)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool PluginManager::dispatch_touch_gesture(const TouchGestureEvent& event) {
+    PluginDispatchGuard guard(m_in_plugin_dispatch);
+    for (auto it = m_touch_gesture_hooks.rbegin(); it != m_touch_gesture_hooks.rend(); ++it) {
+        if ((*it)(event)) {
             return true;
         }
     }

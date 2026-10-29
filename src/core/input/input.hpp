@@ -117,6 +117,7 @@ private:
     double m_swipe_dy = 0.0;
     bool m_swipe_triggered = false;
     bool m_touchpad_workspace_swipe_active = false;
+    bool m_plugin_swipe_active = false;
 
     // Touchscreen multi-finger gesture tracking
     struct TouchPoint {
@@ -129,6 +130,7 @@ private:
     std::map<int32_t, TouchPoint> m_touch_points;
     bool m_touch_gesture_active = false;
     bool m_touch_workspace_swipe_active = false;
+    bool m_plugin_touch_gesture_active = false;
     double m_last_touch_center_x = 0.0;
 
     struct wl_listener m_new_input_listener;

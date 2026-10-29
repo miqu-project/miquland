@@ -145,7 +145,6 @@ View::View(Server* server, struct wlr_xdg_toplevel* toplevel)
     scan_existing_subsurfaces(toplevel->base->surface);
 
     update_parent_relationship();
-    setup_foreign_toplevel();
 }
 
 View::View(Server* server, struct wlr_xwayland_surface* xsurface)
@@ -270,8 +269,6 @@ View::View(Server* server, struct wlr_xwayland_surface* xsurface)
     if (xsurface->surface) {
         handle_xwayland_associate(&m_associate_listener, nullptr);
     }
-
-    setup_foreign_toplevel();
 }
 
 View::~View() {
@@ -336,15 +333,7 @@ View::~View() {
     }
     m_child_dialogs.clear();
 
-    if (m_foreign_toplevel) {
-        wlr_foreign_toplevel_handle_v1_destroy(m_foreign_toplevel);
-        m_foreign_toplevel = nullptr;
-    }
-
-    if (m_ext_foreign_toplevel) {
-        wlr_ext_foreign_toplevel_handle_v1_destroy(m_ext_foreign_toplevel);
-        m_ext_foreign_toplevel = nullptr;
-    }
+    destroy_foreign_toplevel();
 
     m_popups.clear();
 
@@ -359,7 +348,8 @@ View::~View() {
 }
 
 void View::setup_foreign_toplevel() {
-    if (m_is_override_redirect) return;
+    if (m_foreign_toplevel || m_is_override_redirect || !m_mapped) return;
+    if (m_type == ViewType::XWayland && m_xwayland_surface && m_xwayland_surface->skip_taskbar) return;
 
     if (m_server->get_foreign_toplevel_manager()) {
         m_foreign_toplevel = wlr_foreign_toplevel_handle_v1_create(m_server->get_foreign_toplevel_manager());
@@ -381,6 +371,10 @@ void View::setup_foreign_toplevel() {
 
             m_foreign_request_close_listener.notify = handle_foreign_request_close;
             wl_signal_add(&m_foreign_toplevel->events.request_close, &m_foreign_request_close_listener);
+
+            if (is_focused()) {
+                wlr_foreign_toplevel_handle_v1_set_activated(m_foreign_toplevel, true);
+            }
         }
     }
 
@@ -395,6 +389,26 @@ void View::setup_foreign_toplevel() {
         if (m_ext_foreign_toplevel) {
             m_ext_foreign_toplevel->data = this;
         }
+    }
+}
+
+void View::destroy_foreign_toplevel() {
+    if (m_foreign_toplevel) {
+        if (!wl_list_empty(&m_foreign_request_activate_listener.link)) {
+            wl_list_remove(&m_foreign_request_activate_listener.link);
+            wl_list_init(&m_foreign_request_activate_listener.link);
+        }
+        if (!wl_list_empty(&m_foreign_request_close_listener.link)) {
+            wl_list_remove(&m_foreign_request_close_listener.link);
+            wl_list_init(&m_foreign_request_close_listener.link);
+        }
+        wlr_foreign_toplevel_handle_v1_destroy(m_foreign_toplevel);
+        m_foreign_toplevel = nullptr;
+    }
+
+    if (m_ext_foreign_toplevel) {
+        wlr_ext_foreign_toplevel_handle_v1_destroy(m_ext_foreign_toplevel);
+        m_ext_foreign_toplevel = nullptr;
     }
 }
 
@@ -1754,7 +1768,9 @@ void View::handle_map(struct wl_listener* listener, void* data) {
     view->m_is_animating_close = false;
     view->update_parent_relationship();
 
-    if (view->m_foreign_toplevel) {
+    if (!view->m_foreign_toplevel) {
+        view->setup_foreign_toplevel();
+    } else {
         std::string title = view->get_title();
         std::string app_id = view->get_app_id();
         if (!title.empty()) wlr_foreign_toplevel_handle_v1_set_title(view->m_foreign_toplevel, title.c_str());
@@ -1765,16 +1781,13 @@ void View::handle_map(struct wl_listener* listener, void* data) {
                 wlr_foreign_toplevel_handle_v1_output_enter(view->m_foreign_toplevel, out->get_wlr_output());
             }
         }
-    }
-
-    if (view->m_ext_foreign_toplevel) {
-        std::string title = view->get_title();
-        std::string app_id = view->get_app_id();
-        struct wlr_ext_foreign_toplevel_handle_v1_state state = {
-            .title = title.c_str(),
-            .app_id = app_id.c_str(),
-        };
-        wlr_ext_foreign_toplevel_handle_v1_update_state(view->m_ext_foreign_toplevel, &state);
+        if (view->m_ext_foreign_toplevel) {
+            struct wlr_ext_foreign_toplevel_handle_v1_state state = {
+                .title = title.c_str(),
+                .app_id = app_id.c_str(),
+            };
+            wlr_ext_foreign_toplevel_handle_v1_update_state(view->m_ext_foreign_toplevel, &state);
+        }
     }
 
     if (view->m_type == ViewType::XWayland) {
@@ -1962,6 +1975,8 @@ void View::handle_unmap(struct wl_listener* listener, void* data) {
     if (!view->is_override_redirect()) {
         view->m_server->get_workspace_manager()->remove_view(view);
     }
+
+    view->destroy_foreign_toplevel();
 
     if (view->m_type == ViewType::XWayland && view->m_surface_scene_tree) {
         wlr_scene_node_destroy(&view->m_surface_scene_tree->node);
@@ -2321,6 +2336,7 @@ void View::handle_xwayland_dissociate(struct wl_listener* listener, void* data) 
     safe_remove_listener(view->m_map_listener);
     safe_remove_listener(view->m_unmap_listener);
     safe_remove_listener(view->m_commit_listener);
+    view->destroy_foreign_toplevel();
 }
 
 void View::handle_xwayland_request_configure(struct wl_listener* listener, void* data) {
@@ -2443,6 +2459,12 @@ void View::handle_xwayland_set_override_redirect(struct wl_listener* listener, v
     if (!view->m_xwayland_surface) return;
     bool old_val = view->m_is_override_redirect;
     view->m_is_override_redirect = view->m_xwayland_surface->override_redirect;
+
+    if (view->m_is_override_redirect) {
+        view->destroy_foreign_toplevel();
+    } else if (view->m_mapped && !view->m_foreign_toplevel) {
+        view->setup_foreign_toplevel();
+    }
 
     if (view->m_mapped && old_val != view->m_is_override_redirect) {
         if (view->m_is_override_redirect) {
