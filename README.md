@@ -66,6 +66,33 @@
 
 ---
 
+## 🎥 Screen Sharing & Portals (OBS Studio & WebRTC)
+
+Currently, the Miqu ecosystem does not maintain a bespoke portal daemon (such as `xdg-desktop-portal-miqu`). Instead, `miquland` implements modern Wayland capture protocols and relies on standard backends:
+* **`xdg-desktop-portal-wlr`**: Handles monitor screen recording and individual window capture via `ext-image-copy-capture-v1`, `ext-foreign-toplevel-list-v1`, and `ext-foreign-toplevel-image-capture-source-v1`.
+* **`xdg-desktop-portal-gtk`**: Handles native desktop dialogs, file pickers, and app choosers.
+
+### System Configuration Baseline
+The default portal mapping is automatically installed to the system baseline at:
+```text
+/usr/share/xdg-desktop-portal/miquland-portals.conf
+```
+```ini
+[preferred]
+default=gtk
+org.freedesktop.impl.portal.ScreenCast=wlr
+org.freedesktop.impl.portal.Screenshot=wlr
+```
+
+### User Customization & Overrides
+To customize or override portal backends, place your user configuration at:
+```text
+~/.config/xdg-desktop-portal/miquland-portals.conf
+```
+Any preferences declared in your user configuration file will take precedence over the system baseline.
+
+---
+
 ## 🔨 Building & Installation
 
 ### 1. Build Locally (Unprivileged)

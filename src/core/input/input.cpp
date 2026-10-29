@@ -626,6 +626,20 @@ void InputManager::recheck_cursor_focus() {
     }
 }
 
+void InputManager::warp_cursor(double lx, double ly) {
+    if (m_server->is_locked() || !m_cursor) return;
+    wlr_cursor_warp_closest(m_cursor, nullptr, lx, ly);
+    recheck_cursor_focus();
+}
+
+void InputManager::warp_cursor_to_view(View* view) {
+    if (!view || !m_cursor) return;
+    const auto& geom = view->get_geometry();
+    double cx = geom.x + std::max(1, geom.width) / 2.0;
+    double cy = geom.y + std::max(1, geom.height) / 2.0;
+    warp_cursor(cx, cy);
+}
+
 bool InputManager::handle_keybinding(uint32_t modifiers, xkb_keysym_t keysym) {
     // 0. If session is locked, NEVER process any shortcuts (all keys go directly to locker)
     if (m_server->is_locked()) {

@@ -48,6 +48,8 @@ public:
     void end_interactive();
     void notify_view_destroyed(View* view);
     void recheck_cursor_focus();
+    void warp_cursor(double lx, double ly);
+    void warp_cursor_to_view(View* view);
     CursorMode get_cursor_mode() const { return m_cursor_mode; }
     bool execute_action(const std::string& action);
 

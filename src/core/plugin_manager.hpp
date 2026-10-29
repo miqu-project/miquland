@@ -48,6 +48,7 @@ public:
     void set_cursor_icon(const std::string& name) override;
     void clear_pointer_focus() override;
     void recheck_cursor_focus() override;
+    void warp_cursor(double lx, double ly) override;
 
     void register_view_destroy_hook(std::function<void(View*)> hook) override;
 

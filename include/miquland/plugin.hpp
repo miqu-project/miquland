@@ -75,6 +75,7 @@ public:
     virtual void set_cursor_icon(const std::string& name) = 0;
     virtual void clear_pointer_focus() = 0;
     virtual void recheck_cursor_focus() = 0;
+    virtual void warp_cursor(double lx, double ly) = 0;
 
     // Lifecycle hooks: called when a View is being destroyed before scene tree teardown
     virtual void register_view_destroy_hook(std::function<void(View*)> hook) = 0;

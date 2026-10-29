@@ -2904,16 +2904,21 @@ static bool apply_blur_region(struct wlr_scene_node *node, struct blur_data *blu
 		const pixman_region32_t *original_damage, pixman_region32_t *blur_padding_region) {
 	bool should_compensate_blur = false;
 	const int sample_size = blur_data_calc_size(blur_data);
+	struct wlr_output *output = render_data->output->output;
 
 	pixman_region32_t node_visible_region;
 	pixman_region32_init(&node_visible_region);
 	pixman_region32_copy(&node_visible_region, &node->visible);
 	pixman_region32_translate(&node_visible_region, -render_data->output->x, -render_data->output->y);
 	logical_to_buffer_coords(&node_visible_region, render_data, false);
+	pixman_region32_intersect_rect(&node_visible_region, &node_visible_region,
+			0, 0, output->width, output->height);
 
 	pixman_region32_t expanded_damage;
 	pixman_region32_init(&expanded_damage);
 	wlr_region_expand(&expanded_damage, original_damage, sample_size);
+	pixman_region32_intersect_rect(&expanded_damage, &expanded_damage,
+			0, 0, output->width, output->height);
 
 	pixman_region32_t intersection;
 	pixman_region32_init(&intersection);
@@ -2922,14 +2927,20 @@ static bool apply_blur_region(struct wlr_scene_node *node, struct blur_data *blu
 
 		// Expand the render damage to re-render surrounding blur nodes
 		pixman_region32_union(&render_data->damage, &render_data->damage, &intersection);
+		pixman_region32_intersect_rect(&render_data->damage, &render_data->damage,
+				0, 0, output->width, output->height);
 		// Also make sure that the backend also knows about the new
 		// damage. Very important
 		output_state->committed |= WLR_OUTPUT_STATE_DAMAGE;
 		pixman_region32_union(&output_state->damage, &output_state->damage, &intersection);
+		pixman_region32_intersect_rect(&output_state->damage, &output_state->damage,
+				0, 0, output->width, output->height);
 
 		// Expand it once more to get the blur padding region
 		// which is key for artifact removal :)
 		wlr_region_expand(&intersection, &intersection, sample_size);
+		pixman_region32_intersect_rect(&intersection, &intersection,
+				0, 0, output->width, output->height);
 		// Don't re-add already added rectangles
 		pixman_region32_subtract(&intersection, &intersection, blur_padding_region);
 		pixman_region32_union(blur_padding_region, blur_padding_region, &intersection);
@@ -3492,6 +3503,11 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
 
 	if (!render_gamma_lut) {
 		scene_output_state_attempt_gamma(scene_output, state);
+	}
+
+	if (state->committed & WLR_OUTPUT_STATE_DAMAGE) {
+		pixman_region32_intersect_rect(&state->damage, &state->damage,
+			0, 0, output->width, output->height);
 	}
 
 	TRACY_MARK_FRAME;

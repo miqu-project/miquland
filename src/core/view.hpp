@@ -92,6 +92,7 @@ public:
     int get_y() const { return m_y; }
     int get_width() const { return m_width; }
     int get_height() const { return m_height; }
+    struct wlr_box get_geometry() const { return {m_x, m_y, m_width, m_height}; }
     int get_target_x() const { return (m_target_width > 0) ? m_target_x : m_x; }
     int get_target_y() const { return (m_target_height > 0) ? m_target_y : m_y; }
     int get_target_width() const { return (m_target_width > 0) ? m_target_width : m_width; }

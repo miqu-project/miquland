@@ -170,6 +170,11 @@ void Output::handle_frame(struct wl_listener* listener, void* data) {
         return;
     }
 
+    if (state.committed & WLR_OUTPUT_STATE_DAMAGE) {
+        pixman_region32_intersect_rect(&state.damage, &state.damage, 0, 0,
+            output->m_wlr_output->width, output->m_wlr_output->height);
+    }
+
     if (wlr_output_commit_state(output->m_wlr_output, &state)) {
         wlr_scene_output_send_frame_done(output->m_scene_output, &now);
     }
@@ -191,6 +196,11 @@ bool Output::commit_tearing() {
     if (!wlr_scene_output_build_state(m_scene_output, &state, nullptr)) {
         wlr_output_state_finish(&state);
         return false;
+    }
+
+    if (state.committed & WLR_OUTPUT_STATE_DAMAGE) {
+        pixman_region32_intersect_rect(&state.damage, &state.damage, 0, 0,
+            m_wlr_output->width, m_wlr_output->height);
     }
 
     state.tearing_page_flip = true;

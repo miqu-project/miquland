@@ -98,6 +98,12 @@ void PluginManager::recheck_cursor_focus() {
     }
 }
 
+void PluginManager::warp_cursor(double lx, double ly) {
+    if (m_server && m_server->get_input_manager()) {
+        m_server->get_input_manager()->warp_cursor(lx, ly);
+    }
+}
+
 void PluginManager::register_view_destroy_hook(std::function<void(View*)> hook) {
     m_view_destroy_hooks.push_back(std::move(hook));
 }
