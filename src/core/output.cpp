@@ -163,6 +163,10 @@ void Output::handle_frame(struct wl_listener* listener, void* data) {
 
     if (!wlr_scene_output_build_state(output->m_scene_output, &state, nullptr)) {
         wlr_output_state_finish(&state);
+        if (output->m_server && output->m_server->get_animation_manager() &&
+            output->m_server->get_animation_manager()->has_active_animations()) {
+            wlr_output_schedule_frame(output->m_wlr_output);
+        }
         return;
     }
 
@@ -171,6 +175,11 @@ void Output::handle_frame(struct wl_listener* listener, void* data) {
     }
 
     wlr_output_state_finish(&state);
+
+    if (output->m_server && output->m_server->get_animation_manager() &&
+        output->m_server->get_animation_manager()->has_active_animations()) {
+        wlr_output_schedule_frame(output->m_wlr_output);
+    }
 }
 
 bool Output::commit_tearing() {
@@ -193,6 +202,10 @@ bool Output::commit_tearing() {
         struct timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
         wlr_scene_output_send_frame_done(m_scene_output, &now);
+        if (m_server && m_server->get_animation_manager() &&
+            m_server->get_animation_manager()->has_active_animations()) {
+            wlr_output_schedule_frame(m_wlr_output);
+        }
         return true;
     }
 
