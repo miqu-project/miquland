@@ -571,7 +571,7 @@ void AnimationManager::schedule_window_close(View* view, std::function<void()> o
     double close_scale = Config::get().get_window_close_scale(app_id, title);
     double now = get_current_time_ms();
 
-    float cur_opacity = view->is_focused()
+    float cur_opacity = (view == m_server->get_focused_view() || view->is_focused() || view->is_animating_close())
         ? Config::get().get_window_opacity_active()
         : Config::get().get_window_opacity_inactive();
     cur_opacity = Config::get().get_rule_opacity(app_id, title, cur_opacity);
@@ -579,6 +579,9 @@ void AnimationManager::schedule_window_close(View* view, std::function<void()> o
 
     bool fade_enabled = Config::get().is_window_close_fade_enabled(app_id, title);
     float target_close_opacity = fade_enabled ? 0.0f : cur_opacity;
+
+    // Synchronously apply initial frame transform to establish scale 1.0 and opacity without a 1-frame gap
+    view->apply_animation_transform(1.0, cur_opacity);
 
     ViewAnimation anim;
     anim.id = m_next_id++;
