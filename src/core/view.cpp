@@ -1955,12 +1955,12 @@ void View::handle_map(struct wl_listener* listener, void* data) {
         view->update_blur();
         view->update_shadow();
         // Pre-transform the scene node to initial animation scale and initial opacity BEFORE enabling node
-        double open_scale = Config::get().get_window_animation_open_scale();
+        double open_scale = Config::get().get_window_open_scale(view->get_app_id(), view->get_title());
         float target_op = view->is_focused()
             ? Config::get().get_window_opacity_active()
             : Config::get().get_window_opacity_inactive();
         target_op = Config::get().get_rule_opacity(view->get_app_id(), view->get_title(), target_op);
-        float init_op = Config::get().is_window_animation_fade_enabled() ? 0.0f : target_op;
+        float init_op = Config::get().is_window_open_fade_enabled(view->get_app_id(), view->get_title()) ? 0.0f : target_op;
         view->apply_animation_transform(open_scale, init_op);
     } else {
         view->update_opacity();
