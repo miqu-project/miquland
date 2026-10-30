@@ -1849,6 +1849,10 @@ void View::handle_map(struct wl_listener* listener, void* data) {
     view->m_is_animating_close = false;
     view->update_parent_relationship();
 
+    if (view->m_server && view->m_server->get_input_manager()) {
+        view->m_server->get_input_manager()->cancel_app_launch_cursor();
+    }
+
     if (!view->m_foreign_toplevel) {
         view->setup_foreign_toplevel();
     } else {

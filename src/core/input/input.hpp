@@ -53,6 +53,11 @@ public:
     CursorMode get_cursor_mode() const { return m_cursor_mode; }
     bool execute_action(const std::string& action);
 
+    void trigger_app_launch_cursor();
+    void cancel_app_launch_cursor();
+    bool is_app_launching() const { return m_app_launching; }
+    const char* get_busy_cursor_name() const;
+
 private:
     static void handle_new_input(struct wl_listener* listener, void* data);
     static void handle_cursor_motion(struct wl_listener* listener, void* data);
@@ -106,6 +111,9 @@ private:
 
     View* m_border_hover_view = nullptr;
     uint32_t m_border_hover_edges = 0;
+
+    bool m_app_launching = false;
+    struct wl_event_source* m_app_launch_timer = nullptr;
 
     std::vector<std::unique_ptr<Keyboard>> m_keyboards;
     std::vector<struct wlr_input_device*> m_pointers;

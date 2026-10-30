@@ -10,11 +10,15 @@
 #include "core/config/config.hpp"
 #include <unistd.h>
 #include <sys/wait.h>
+#include <spawn.h>
+#include <filesystem>
 #include <cstdlib>
 #include <cmath>
 #include <algorithm>
 #include <cstring>
 #include <linux/input-event-codes.h>
+
+extern "C" char** environ;
 
 namespace miquland {
 
@@ -221,8 +225,57 @@ InputManager::~InputManager() {
     }
     m_device_nodes.clear();
 
+    if (m_app_launch_timer) {
+        wl_event_source_remove(m_app_launch_timer);
+        m_app_launch_timer = nullptr;
+    }
     if (m_cursor_mgr) wlr_xcursor_manager_destroy(m_cursor_mgr);
     if (m_cursor) wlr_cursor_destroy(m_cursor);
+}
+
+const char* InputManager::get_busy_cursor_name() const {
+    if (m_cursor_mgr) {
+        if (wlr_xcursor_manager_get_xcursor(m_cursor_mgr, "progress", 1.0f)) {
+            return "progress";
+        }
+        if (wlr_xcursor_manager_get_xcursor(m_cursor_mgr, "left_ptr_watch", 1.0f)) {
+            return "left_ptr_watch";
+        }
+        if (wlr_xcursor_manager_get_xcursor(m_cursor_mgr, "wait", 1.0f)) {
+            return "wait";
+        }
+    }
+    return "progress";
+}
+
+void InputManager::trigger_app_launch_cursor() {
+    m_app_launching = true;
+    set_cursor_icon(get_busy_cursor_name());
+
+    if (m_app_launch_timer) {
+        wl_event_source_timer_update(m_app_launch_timer, 4000);
+    } else if (m_server && m_server->get_event_loop()) {
+        m_app_launch_timer = wl_event_loop_add_timer(m_server->get_event_loop(), [](void* data) -> int {
+            auto* mgr = static_cast<InputManager*>(data);
+            if (mgr) {
+                mgr->cancel_app_launch_cursor();
+            }
+            return 0;
+        }, this);
+        if (m_app_launch_timer) {
+            wl_event_source_timer_update(m_app_launch_timer, 4000);
+        }
+    }
+}
+
+void InputManager::cancel_app_launch_cursor() {
+    if (!m_app_launching && !m_app_launch_timer) return;
+    m_app_launching = false;
+    if (m_app_launch_timer) {
+        wl_event_source_remove(m_app_launch_timer);
+        m_app_launch_timer = nullptr;
+    }
+    set_cursor_icon("default");
 }
 
 static std::vector<std::string> split_simple_command(const std::string& cmd_str) {
@@ -254,33 +307,54 @@ void InputManager::spawn_command(const char* cmd) {
     if (!cmd || !*cmd) return;
     log_info("Executing command: " + std::string(cmd));
 
-    pid_t pid = fork();
-    if (pid < 0) {
-        log_error("Failed to fork process for command: " + std::string(cmd));
-        return;
-    }
+    trigger_app_launch_cursor();
 
-    if (pid == 0) {
-        setpgid(0, 0);
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addclosefrom_np(&actions, 3);
 
-        // Fast path: if command contains no shell metacharacters, execvp directly to avoid /bin/sh fork overhead
-        std::string cmd_str(cmd);
-        if (cmd_str.find_first_of("|&;<>()$`\n*?") == std::string::npos) {
-            auto args = split_simple_command(cmd_str);
-            if (!args.empty()) {
-                std::vector<char*> c_argv;
-                c_argv.reserve(args.size() + 1);
-                for (auto& s : args) c_argv.push_back(s.data());
-                c_argv.push_back(nullptr);
-                execvp(c_argv[0], c_argv.data());
+    posix_spawnattr_t attr;
+    posix_spawnattr_init(&attr);
+    posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETPGROUP);
+    posix_spawnattr_setpgroup(&attr, 0);
+
+    pid_t pid = -1;
+    int ret = -1;
+
+    std::string cmd_str(cmd);
+    // Fast path: if command contains no shell metacharacters, execvp directly to avoid /bin/sh fork overhead
+    if (cmd_str.find_first_of("|&;<>()$`\n*?") == std::string::npos) {
+        auto args = split_simple_command(cmd_str);
+        if (!args.empty()) {
+            // Fast path: bypass shell wrapper scripts for well-known desktop browsers
+            if (args[0] == "firefox" && std::filesystem::exists("/usr/lib/firefox/firefox")) {
+                args[0] = "/usr/lib/firefox/firefox";
+            } else if (args[0] == "brave" && std::filesystem::exists("/opt/brave-bin/brave")) {
+                args[0] = "/opt/brave-bin/brave";
             }
-        }
 
-        execl("/bin/sh", "sh", "-c", cmd, nullptr);
-        _exit(127);
+            std::vector<char*> c_argv;
+            c_argv.reserve(args.size() + 1);
+            for (auto& s : args) c_argv.push_back(s.data());
+            c_argv.push_back(nullptr);
+
+            ret = posix_spawnp(&pid, c_argv[0], &actions, &attr, c_argv.data(), environ);
+        }
     }
 
-    m_spawned_pids.push_back(pid);
+    if (ret != 0) {
+        const char* sh_argv[] = {"/bin/sh", "-c", cmd, nullptr};
+        ret = posix_spawnp(&pid, "/bin/sh", &actions, &attr, (char* const*)sh_argv, environ);
+    }
+
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attr);
+
+    if (ret == 0 && pid > 0) {
+        m_spawned_pids.push_back(pid);
+    } else {
+        log_error("Failed to spawn process for command: " + std::string(cmd) + " (code: " + std::to_string(ret) + ")");
+    }
 }
 
 void InputManager::terminate_spawned_processes() {
@@ -486,6 +560,9 @@ void InputManager::load_cursor_scale(float scale) {
 }
 
 void InputManager::set_cursor_icon(const char* name) {
+    if (m_app_launching && (!name || strcmp(name, "default") == 0)) {
+        name = get_busy_cursor_name();
+    }
     m_current_cursor_name = name ? name : "default";
     if (m_cursor && m_cursor_mgr) {
         wlr_cursor_set_xcursor(m_cursor, m_cursor_mgr, m_current_cursor_name.c_str());

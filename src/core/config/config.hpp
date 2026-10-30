@@ -613,39 +613,39 @@ private:
     bool m_window_animations_enabled = true;
     bool m_window_open_animation_enabled = true;
     bool m_window_close_animation_enabled = true;
-    int m_window_animation_duration_ms = 240;
-    int m_window_animation_open_duration_ms = 240;
+    int m_window_animation_duration_ms = 320;
+    int m_window_animation_open_duration_ms = 360;
     int m_window_animation_close_duration_ms = 180;
-    std::string m_window_animation_curve = "snappy_smooth";
-    std::string m_window_animation_open_curve = "snappy_smooth";
-    std::string m_window_animation_close_curve = "ease_out_cubic";
-    double m_window_animation_open_scale = 0.90;
-    double m_window_animation_close_scale = 0.92;
+    std::string m_window_animation_curve = "spring_gentle";
+    std::string m_window_animation_open_curve = "spring_gentle";
+    std::string m_window_animation_close_curve = "ease_out_quad";
+    double m_window_animation_open_scale = 0.30;
+    double m_window_animation_close_scale = 0.40;
     bool m_window_open_fade_enabled = true;
     bool m_window_close_fade_enabled = true;
-    int m_window_animation_fade_in_duration_ms = 180;
-    int m_window_animation_fade_out_duration_ms = 160;
+    int m_window_animation_fade_in_duration_ms = 240;
+    int m_window_animation_fade_out_duration_ms = 150;
     std::string m_window_animation_fade_in_curve = "ease_out_cubic";
     std::string m_window_animation_fade_out_curve = "ease_out_cubic";
     bool m_window_move_animation_enabled = true;
-    int m_window_move_animation_duration_ms = 240;
-    std::string m_window_move_animation_curve = "snappy_smooth";
-    int m_window_move_defer_ms = 0;
+    int m_window_move_animation_duration_ms = 320;
+    std::string m_window_move_animation_curve = "spring_gentle";
+    int m_window_move_defer_ms = 15;
     std::string m_window_open_tiled_style = "split";
     std::string m_window_open_floating_style = "popin";
     bool m_layer_animations_enabled = true;
     bool m_layer_animation_open_enabled = true;
     bool m_layer_animation_close_enabled = true;
-    int m_layer_animation_duration_ms = 220;
-    int m_layer_animation_open_duration_ms = 220;
-    int m_layer_animation_close_duration_ms = 160;
-    std::string m_layer_animation_curve = "snappy_smooth";
-    std::string m_layer_animation_open_curve = "snappy_smooth";
+    int m_layer_animation_duration_ms = 200;
+    int m_layer_animation_open_duration_ms = 200;
+    int m_layer_animation_close_duration_ms = 150;
+    std::string m_layer_animation_curve = "md3_decel";
+    std::string m_layer_animation_open_curve = "md3_decel";
     std::string m_layer_animation_close_curve = "ease_out_cubic";
     double m_layer_animation_popin_scale = 0.92;
     bool m_layer_animation_fade_enabled = true;
-    int m_layer_animation_fade_in_duration_ms = 160;
-    int m_layer_animation_fade_out_duration_ms = 160;
+    int m_layer_animation_fade_in_duration_ms = 150;
+    int m_layer_animation_fade_out_duration_ms = 130;
     std::string m_layer_animation_fade_in_curve = "ease_out_cubic";
     std::string m_layer_animation_fade_out_curve = "ease_out_cubic";
     std::vector<LayerRule> m_layer_rules;
@@ -664,7 +664,7 @@ private:
     bool m_auto_float_fixed_size = true;
 
     bool m_tap_to_click = true;
-    bool m_natural_scroll = true;
+    bool m_natural_scroll = false;
     bool m_dwt = true;
     double m_accel_speed = 0.0;
     std::string m_accel_profile = "adaptive";
@@ -685,7 +685,7 @@ private:
     std::string m_terminal = "kitty";
 
     int m_window_border_width = 1;
-    int m_window_border_radius = 14;
+    int m_window_border_radius = 18;
     bool m_resize_on_border = true;
     int m_border_grab_area = 8;
     int m_space_between_windows = 8;
@@ -694,12 +694,12 @@ private:
     float m_window_opacity_active = 1.0f;
     float m_window_opacity_inactive = 1.0f;
     bool m_blur_enabled = true;
-    int m_blur_radius = 7;
+    int m_blur_radius = 18;
     int m_blur_num_passes = 3;
-    float m_blur_noise = 0.015f;
-    float m_blur_brightness = 0.95f;
-    float m_blur_contrast = 0.92f;
-    float m_blur_saturation = 1.15f;
+    float m_blur_noise = 0.02f;
+    float m_blur_brightness = 0.9f;
+    float m_blur_contrast = 0.9f;
+    float m_blur_saturation = 1.1f;
     std::vector<std::string> m_blurred_layers;
     LayoutMode m_layout_mode = LayoutMode::Dwindle;
 
@@ -710,10 +710,10 @@ private:
     bool m_window_border_shading = false;
     float m_window_border_shading_strength = 0.35f;
 
-    bool m_shadow_enabled = true;
+    bool m_shadow_enabled = false;
     float m_shadow_blur_sigma = 16.0f;
-    std::string m_shadow_color_active = "#00000050";
-    std::string m_shadow_color_inactive = "#00000028";
+    std::string m_shadow_color_active = "#00000055";
+    std::string m_shadow_color_inactive = "#00000033";
     double m_shadow_offset_x = 0.0;
     double m_shadow_offset_y = 6.0;
 

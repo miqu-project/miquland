@@ -6,6 +6,10 @@
 #include <vector>
 #include <memory>
 #include <functional>
+#include <spawn.h>
+#include <unistd.h>
+
+extern "C" char** environ;
 
 namespace miquland {
 
@@ -34,22 +38,28 @@ inline void safe_remove_listener(struct wl_listener& listener) {
 
 inline void spawn_async_command(const std::vector<std::string>& argv) {
     if (argv.empty()) return;
-    pid_t pid = fork();
-    if (pid == 0) {
-        int max_fd = static_cast<int>(sysconf(_SC_OPEN_MAX));
-        if (max_fd < 0 || max_fd > 4096) max_fd = 1024;
-        for (int fd = 3; fd < max_fd; ++fd) {
-            ::close(fd);
-        }
-        std::vector<char*> c_argv;
-        c_argv.reserve(argv.size() + 1);
-        for (const auto& arg : argv) {
-            c_argv.push_back(const_cast<char*>(arg.c_str()));
-        }
-        c_argv.push_back(nullptr);
-        execvp(c_argv[0], c_argv.data());
-        _exit(1);
+
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addclosefrom_np(&actions, 3);
+
+    posix_spawnattr_t attr;
+    posix_spawnattr_init(&attr);
+    posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETPGROUP);
+    posix_spawnattr_setpgroup(&attr, 0);
+
+    std::vector<char*> c_argv;
+    c_argv.reserve(argv.size() + 1);
+    for (const auto& arg : argv) {
+        c_argv.push_back(const_cast<char*>(arg.c_str()));
     }
+    c_argv.push_back(nullptr);
+
+    pid_t pid = -1;
+    posix_spawnp(&pid, c_argv[0], &actions, &attr, c_argv.data(), environ);
+
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attr);
 }
 
 } // namespace miquland
