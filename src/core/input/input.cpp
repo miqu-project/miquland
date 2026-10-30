@@ -225,6 +225,31 @@ InputManager::~InputManager() {
     if (m_cursor) wlr_cursor_destroy(m_cursor);
 }
 
+static std::vector<std::string> split_simple_command(const std::string& cmd_str) {
+    std::vector<std::string> args;
+    std::string current;
+    bool in_single = false, in_double = false;
+    for (size_t i = 0; i < cmd_str.size(); ++i) {
+        char c = cmd_str[i];
+        if (c == '\\' && i + 1 < cmd_str.size() && !in_single) {
+            current += cmd_str[++i];
+        } else if (c == '\'' && !in_double) {
+            in_single = !in_single;
+        } else if (c == '"' && !in_single) {
+            in_double = !in_double;
+        } else if ((c == ' ' || c == '\t') && !in_single && !in_double) {
+            if (!current.empty()) {
+                args.push_back(std::move(current));
+                current.clear();
+            }
+        } else {
+            current += c;
+        }
+    }
+    if (!current.empty()) args.push_back(std::move(current));
+    return args;
+}
+
 void InputManager::spawn_command(const char* cmd) {
     if (!cmd || !*cmd) return;
     log_info("Executing command: " + std::string(cmd));
@@ -237,6 +262,20 @@ void InputManager::spawn_command(const char* cmd) {
 
     if (pid == 0) {
         setpgid(0, 0);
+
+        // Fast path: if command contains no shell metacharacters, execvp directly to avoid /bin/sh fork overhead
+        std::string cmd_str(cmd);
+        if (cmd_str.find_first_of("|&;<>()$`\n*?") == std::string::npos) {
+            auto args = split_simple_command(cmd_str);
+            if (!args.empty()) {
+                std::vector<char*> c_argv;
+                c_argv.reserve(args.size() + 1);
+                for (auto& s : args) c_argv.push_back(s.data());
+                c_argv.push_back(nullptr);
+                execvp(c_argv[0], c_argv.data());
+            }
+        }
+
         execl("/bin/sh", "sh", "-c", cmd, nullptr);
         _exit(127);
     }
