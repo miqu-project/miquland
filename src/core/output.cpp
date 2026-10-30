@@ -189,6 +189,10 @@ void Output::handle_frame(struct wl_listener* listener, void* data) {
         return;
     }
 
+    if (has_active_anims) {
+        output->m_wlr_output->needs_frame = true;
+    }
+
     struct wlr_output_state state;
     wlr_output_state_init(&state);
 
