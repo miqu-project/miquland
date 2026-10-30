@@ -123,51 +123,51 @@ void Config::set_defaults() {
     m_repeat_rate = 25;
     m_repeat_delay = 600;
     m_window_opacity_active = 1.0f;
-    m_window_opacity_inactive = 0.85f;
+    m_window_opacity_inactive = 1.0f;
     m_animations_enabled = true;
     m_workspace_animations_enabled = true;
-    m_workspace_animation_duration_ms = 500;
+    m_workspace_animation_duration_ms = 340;
     m_workspace_animation_curve = "smooth_slide";
     m_window_animations_enabled = true;
     m_window_open_animation_enabled = true;
     m_window_close_animation_enabled = true;
-    m_window_animation_duration_ms = 420;
-    m_window_animation_open_duration_ms = 420;
-    m_window_animation_close_duration_ms = 250;
-    m_window_animation_curve = "smooth_pop";
-    m_window_animation_open_curve = "smooth_pop";
-    m_window_animation_close_curve = "smooth_in";
-    m_window_animation_open_scale = 0.75;
-    m_window_animation_close_scale = 0.85;
+    m_window_animation_duration_ms = 240;
+    m_window_animation_open_duration_ms = 240;
+    m_window_animation_close_duration_ms = 180;
+    m_window_animation_curve = "snappy_smooth";
+    m_window_animation_open_curve = "snappy_smooth";
+    m_window_animation_close_curve = "ease_out_cubic";
+    m_window_animation_open_scale = 0.90;
+    m_window_animation_close_scale = 0.92;
     m_window_open_fade_enabled = true;
     m_window_close_fade_enabled = true;
-    m_window_animation_fade_in_duration_ms = 320;
-    m_window_animation_fade_out_duration_ms = 200;
+    m_window_animation_fade_in_duration_ms = 180;
+    m_window_animation_fade_out_duration_ms = 160;
     m_window_animation_fade_in_curve = "ease_out_cubic";
-    m_window_animation_fade_out_curve = "smooth_in";
+    m_window_animation_fade_out_curve = "ease_out_cubic";
     m_layer_animations_enabled = true;
-    m_layer_animation_duration_ms = 350;
-    m_layer_animation_open_duration_ms = 350;
-    m_layer_animation_close_duration_ms = 220;
-    m_layer_animation_curve = "smooth_pop";
-    m_layer_animation_open_curve = "smooth_pop";
-    m_layer_animation_close_curve = "smooth_in";
-    m_layer_animation_popin_scale = 0.75;
+    m_layer_animation_duration_ms = 220;
+    m_layer_animation_open_duration_ms = 220;
+    m_layer_animation_close_duration_ms = 160;
+    m_layer_animation_curve = "snappy_smooth";
+    m_layer_animation_open_curve = "snappy_smooth";
+    m_layer_animation_close_curve = "ease_out_cubic";
+    m_layer_animation_popin_scale = 0.92;
     m_layer_animation_fade_enabled = true;
-    m_layer_animation_fade_in_duration_ms = 280;
-    m_layer_animation_fade_out_duration_ms = 180;
+    m_layer_animation_fade_in_duration_ms = 160;
+    m_layer_animation_fade_out_duration_ms = 160;
     m_layer_animation_fade_in_curve = "ease_out_cubic";
-    m_layer_animation_fade_out_curve = "smooth_in";
+    m_layer_animation_fade_out_curve = "ease_out_cubic";
     m_layer_rules.clear();
     m_blur_enabled = true;
-    m_blur_radius = 5;
+    m_blur_radius = 7;
     m_blur_num_passes = 3;
-    m_blur_noise = 0.02f;
-    m_blur_brightness = 0.9f;
-    m_blur_contrast = 0.9f;
-    m_blur_saturation = 1.1f;
+    m_blur_noise = 0.015f;
+    m_blur_brightness = 0.95f;
+    m_blur_contrast = 0.92f;
+    m_blur_saturation = 1.15f;
 
-    m_window_border_color_active = "#0066ff";
+    m_window_border_color_active = "#ffff00 #ff0000 45deg";
     m_window_border_color_inactive = "#99c2ff";
     m_border_paint_active = BorderPaint::parse(m_window_border_color_active);
     m_border_paint_inactive = BorderPaint::parse(m_window_border_color_inactive);
@@ -175,23 +175,23 @@ void Config::set_defaults() {
     m_window_border_shading_strength = 0.35f;
 
     m_shadow_enabled = true;
-    m_shadow_blur_sigma = 12.0f;
-    m_shadow_color_active = "#00000066";
-    m_shadow_color_inactive = "#00000044";
+    m_shadow_blur_sigma = 16.0f;
+    m_shadow_color_active = "#00000050";
+    m_shadow_color_inactive = "#00000028";
     m_shadow_offset_x = 0.0;
-    m_shadow_offset_y = 4.0;
+    m_shadow_offset_y = 6.0;
 
-    m_window_border_width = 2;
-    m_window_border_radius = 10;
+    m_window_border_width = 1;
+    m_window_border_radius = 14;
     m_space_between_windows = 8;
     m_screen_edge_padding = 12;
     m_layout_mode = LayoutMode::Dwindle;
     m_resize_on_border = true;
-    m_border_grab_area = 6;
+    m_border_grab_area = 8;
 
     m_smart_gaps = false;
     m_allow_tearing = false;
-    m_xwayland_force_zero_scaling = false;
+    m_xwayland_force_zero_scaling = true;
     m_cursor_theme = "";
     m_cursor_size = 24;
     m_default_split_ratio = 0.5;
@@ -201,6 +201,23 @@ void Config::set_defaults() {
     m_dwindle_smart_split = true;
     m_workspace_cycle = false;
     m_vfr_enabled = true;
+
+    // Register built-in default cubic Béziers
+    m_custom_beziers.clear();
+    add_custom_bezier("snappy_smooth", 0.05f, 0.9f, 0.15f, 1.0f);
+    add_custom_bezier("fluent", 0.1f, 1.0f, 0.15f, 1.0f);
+    add_custom_bezier("smooth_pop", 0.16f, 1.0f, 0.3f, 1.0f);
+    add_custom_bezier("smooth_slide", 0.1f, 1.0f, 0.15f, 1.0f);
+    add_custom_bezier("default", 0.05f, 0.9f, 0.1f, 1.02f);
+    add_custom_bezier("ease_out_cubic", 0.33f, 1.0f, 0.68f, 1.0f);
+    add_custom_bezier("ease_in_cubic", 0.32f, 0.0f, 0.67f, 0.0f);
+    add_custom_bezier("ease_in_out_cubic", 0.65f, 0.0f, 0.35f, 1.0f);
+    add_custom_bezier("spring_light", 0.12f, 1.12f, 0.24f, 1.02f);
+    add_custom_bezier("spring_soft", 0.18f, 1.22f, 0.38f, 1.0f);
+    add_custom_bezier("spring_bouncy", 0.17f, 1.28f, 0.36f, 1.0f);
+    for (const auto& [name, b] : m_custom_beziers) {
+        Easing::register_named_bezier(name, b.x1, b.y1, b.x2, b.y2);
+    }
 }
 
 void Config::add_or_update_binding(uint32_t mods, xkb_keysym_t sym, const std::string& action, const std::string& combo) {
