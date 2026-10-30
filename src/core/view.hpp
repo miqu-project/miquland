@@ -43,6 +43,7 @@ public:
     void update_frame();
     void update_border();
     void update_shadow();
+    void update_blur();
     void update_opacity();
     void update_corner_radius();
     void apply_animation_transform(double scale, float opacity);
@@ -57,6 +58,8 @@ public:
 
     bool is_mapping() const { return m_is_mapping; }
     void set_mapping(bool mapping) { m_is_mapping = mapping; }
+    bool is_split_opening() const { return m_is_split_opening; }
+    void set_split_opening(bool opening) { m_is_split_opening = opening; }
 
     bool is_dialog() const { return m_is_dialog; }
     bool is_floating() const { return m_is_floating; }
@@ -145,7 +148,6 @@ private:
 
     void setup_foreign_toplevel();
     void destroy_foreign_toplevel();
-    void update_blur();
     void sync_shadow_geometry(int w, int h, int r, float sigma, double ox, double oy);
 
     Server* m_server = nullptr;
@@ -166,6 +168,7 @@ private:
 
     bool m_mapped = false;
     bool m_is_mapping = false;
+    bool m_is_split_opening = false;
     bool m_is_animating_close = false;
     bool m_is_animating_open = false;
     bool m_is_animating_geometry = false;

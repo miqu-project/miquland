@@ -120,6 +120,31 @@ public:
     }
     void set_window_animation_fade_out_curve(const std::string& curve) { m_window_animation_fade_out_curve = curve; }
 
+    bool is_window_move_animation_enabled() const { return is_window_animations_enabled() && m_window_move_animation_enabled; }
+    void set_window_move_animation_enabled(bool enabled) { m_window_move_animation_enabled = enabled; }
+
+    int get_window_move_duration_ms() const {
+        return (m_window_move_animation_duration_ms > 0) ? m_window_move_animation_duration_ms : m_window_animation_duration_ms;
+    }
+    void set_window_move_duration_ms(int ms) { m_window_move_animation_duration_ms = std::clamp(ms, 10, 2000); }
+
+    const std::string& get_window_move_curve() const {
+        return !m_window_move_animation_curve.empty() ? m_window_move_animation_curve : m_window_animation_curve;
+    }
+    void set_window_move_curve(const std::string& curve) { m_window_move_animation_curve = curve; }
+
+    int get_window_move_defer_ms() const { return m_window_move_defer_ms; }
+    void set_window_move_defer_ms(int ms) { m_window_move_defer_ms = std::clamp(ms, 0, 2000); }
+
+    const std::string& get_window_open_tiled_style() const { return m_window_open_tiled_style; }
+    void set_window_open_tiled_style(const std::string& s) { m_window_open_tiled_style = s; }
+
+    const std::string& get_window_open_floating_style() const { return m_window_open_floating_style; }
+    void set_window_open_floating_style(const std::string& s) { m_window_open_floating_style = s; }
+
+    std::string get_window_open_tiled_style(const std::string& app_id, const std::string& title) const;
+    std::string get_window_open_floating_style(const std::string& app_id, const std::string& title) const;
+
     struct CustomBezier {
         float x1 = 0.0f;
         float y1 = 0.0f;
@@ -602,6 +627,12 @@ private:
     int m_window_animation_fade_out_duration_ms = 160;
     std::string m_window_animation_fade_in_curve = "ease_out_cubic";
     std::string m_window_animation_fade_out_curve = "ease_out_cubic";
+    bool m_window_move_animation_enabled = true;
+    int m_window_move_animation_duration_ms = 240;
+    std::string m_window_move_animation_curve = "snappy_smooth";
+    int m_window_move_defer_ms = 0;
+    std::string m_window_open_tiled_style = "split";
+    std::string m_window_open_floating_style = "popin";
     bool m_layer_animations_enabled = true;
     bool m_layer_animation_open_enabled = true;
     bool m_layer_animation_close_enabled = true;

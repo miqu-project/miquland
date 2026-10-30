@@ -299,13 +299,35 @@ void Workspace::recalculate_layout(const struct wlr_box& usable_box) {
     }
 
     auto* anim_mgr = m_server ? m_server->get_animation_manager() : nullptr;
-    bool animate_layout = anim_mgr && Config::get().is_window_animations_enabled() && m_visible;
+    bool animate_layout = anim_mgr && Config::get().is_window_animations_enabled() &&
+                          Config::get().is_window_move_animation_enabled() && m_visible;
 
     for (size_t i = 0; i < m_tiled_views.size(); ++i) {
         View* v = m_tiled_views[i];
         if (!v) continue;
 
         const auto& target_box = boxes[i];
+
+        if (animate_layout && v->is_mapping() && m_tiled_views.size() > 1) {
+            std::string tiled_style = Config::get().get_window_open_tiled_style(v->get_app_id(), v->get_title());
+            if (tiled_style == "split") {
+                struct wlr_box from_box = calculate_split_opening_box(v, i, boxes, anim_mgr);
+                if (from_box.width > 0 && from_box.height > 0) {
+                    if (v->get_scene_tree()) {
+                        wlr_scene_node_set_enabled(&v->get_scene_tree()->node, true);
+                    }
+                    v->update_opacity();
+                    v->update_border();
+                    v->update_corner_radius();
+                    v->update_blur();
+                    v->update_shadow();
+                    v->set_split_opening(true);
+                    anim_mgr->schedule_view_geometry(v, from_box, target_box);
+                    continue;
+                }
+            }
+        }
+
         if (animate_layout && !v->is_mapping() && v->is_mapped() && v->get_width() > 0 && v->get_height() > 0) {
             struct wlr_box from_box = anim_mgr->get_view_current_box(v, { v->get_x(), v->get_y(), v->get_width(), v->get_height() });
             if (from_box.x != target_box.x || from_box.y != target_box.y ||
@@ -320,6 +342,87 @@ void Workspace::recalculate_layout(const struct wlr_box& usable_box) {
     }
 
     arrange_floating_views(usable_box);
+}
+
+struct wlr_box Workspace::calculate_split_opening_box(View* new_view, size_t new_view_idx,
+                                                      const std::vector<struct wlr_box>& boxes,
+                                                      AnimationManager* anim_mgr) const {
+    if (!new_view || new_view_idx >= boxes.size() || !anim_mgr) {
+        return { 0, 0, 0, 0 };
+    }
+
+    const auto& target_box = boxes[new_view_idx];
+    View* partner = nullptr;
+    int max_overlap_area = 0;
+    struct wlr_box partner_from_box = {};
+    struct wlr_box partner_target_box = {};
+
+    for (size_t j = 0; j < m_tiled_views.size(); ++j) {
+        if (j == new_view_idx) continue;
+        View* other = m_tiled_views[j];
+        if (!other || j >= boxes.size()) continue;
+
+        struct wlr_box other_cur = anim_mgr->get_view_current_box(
+            other, { other->get_x(), other->get_y(), other->get_width(), other->get_height() }
+        );
+
+        int x1 = std::max(other_cur.x, target_box.x);
+        int y1 = std::max(other_cur.y, target_box.y);
+        int x2 = std::min(other_cur.x + other_cur.width, target_box.x + target_box.width);
+        int y2 = std::min(other_cur.y + other_cur.height, target_box.y + target_box.height);
+
+        if (x2 > x1 && y2 > y1) {
+            int area = (x2 - x1) * (y2 - y1);
+            if (area > max_overlap_area) {
+                max_overlap_area = area;
+                partner = other;
+                partner_from_box = other_cur;
+                partner_target_box = boxes[j];
+            }
+        }
+    }
+
+    if (!partner || partner_from_box.width <= 0 || partner_from_box.height <= 0) {
+        return { 0, 0, 0, 0 };
+    }
+
+    struct wlr_box from_box = target_box;
+    int dx = std::abs(target_box.x - partner_target_box.x);
+    int dy = std::abs(target_box.y - partner_target_box.y);
+
+    if (dx >= dy) {
+        // Horizontal split
+        if (target_box.x > partner_target_box.x) {
+            // New window is to the right of partner: seam starts at partner's right edge
+            from_box.x = partner_from_box.x + partner_from_box.width;
+            from_box.y = target_box.y;
+            from_box.width = 1;
+            from_box.height = target_box.height;
+        } else {
+            // New window is to the left of partner: seam starts at partner's left edge
+            from_box.x = partner_from_box.x;
+            from_box.y = target_box.y;
+            from_box.width = 1;
+            from_box.height = target_box.height;
+        }
+    } else {
+        // Vertical split
+        if (target_box.y > partner_target_box.y) {
+            // New window is below partner: seam starts at partner's bottom edge
+            from_box.x = target_box.x;
+            from_box.y = partner_from_box.y + partner_from_box.height;
+            from_box.width = target_box.width;
+            from_box.height = 1;
+        } else {
+            // New window is above partner: seam starts at partner's top edge
+            from_box.x = target_box.x;
+            from_box.y = partner_from_box.y;
+            from_box.width = target_box.width;
+            from_box.height = 1;
+        }
+    }
+
+    return from_box;
 }
 
 struct wlr_box Workspace::calculate_tiled_geometry_for_new_view(const struct wlr_box& usable_box) const {

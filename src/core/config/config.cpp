@@ -145,6 +145,12 @@ void Config::set_defaults() {
     m_window_animation_fade_out_duration_ms = 160;
     m_window_animation_fade_in_curve = "ease_out_cubic";
     m_window_animation_fade_out_curve = "ease_out_cubic";
+    m_window_move_animation_enabled = true;
+    m_window_move_animation_duration_ms = 240;
+    m_window_move_animation_curve = "snappy_smooth";
+    m_window_move_defer_ms = 0;
+    m_window_open_tiled_style = "split";
+    m_window_open_floating_style = "popin";
     m_layer_animations_enabled = true;
     m_layer_animation_duration_ms = 220;
     m_layer_animation_open_duration_ms = 220;
@@ -829,6 +835,26 @@ std::string Config::get_window_close_fade_curve(const std::string& app_id, const
     return get_window_animation_fade_out_curve();
 }
 
+std::string Config::get_window_open_tiled_style(const std::string& app_id, const std::string& title) const {
+    for (const auto& r : m_window_rules) {
+        if ((r.rule == "animation_open_tiled_style" || r.rule == "animation_tiled_style") &&
+            (matches_target(r.target, app_id) || matches_target(r.target, title))) {
+            if (!r.extra.empty()) return r.extra;
+        }
+    }
+    return m_window_open_tiled_style;
+}
+
+std::string Config::get_window_open_floating_style(const std::string& app_id, const std::string& title) const {
+    for (const auto& r : m_window_rules) {
+        if ((r.rule == "animation_open_floating_style" || r.rule == "animation_floating_style") &&
+            (matches_target(r.target, app_id) || matches_target(r.target, title))) {
+            if (!r.extra.empty()) return r.extra;
+        }
+    }
+    return m_window_open_floating_style;
+}
+
 bool Config::parse_binding_combo(const std::string& combo, uint32_t& out_modifiers, xkb_keysym_t& out_keysym) {
     out_modifiers = 0;
     out_keysym = XKB_KEY_NoSymbol;
@@ -1479,6 +1505,15 @@ static void parse_window_animation_entry(Config& cfg, const std::string& path_st
         return;
     }
 
+    bool in_move = (top_type == "move" || is_in_path(stack, "move"));
+    if (in_move) {
+        if (key == "enabled") cfg.set_window_move_animation_enabled(value == "true" || value == "1" || value == "yes");
+        else if (key == "duration") { try { cfg.set_window_move_duration_ms(std::stoi(value)); } catch (...) {} }
+        else if (key == "curve") cfg.set_window_move_curve(value);
+        else if (key == "defer" || key == "delay") { try { cfg.set_window_move_defer_ms(std::stoi(value)); } catch (...) {} }
+        return;
+    }
+
     if (in_open) {
         if (key == "enabled") cfg.set_window_open_animation_enabled(value == "true" || value == "1" || value == "yes");
         else if (key == "duration") { try { cfg.set_window_animation_open_duration_ms(std::stoi(value)); } catch (...) {} }
@@ -1490,6 +1525,13 @@ static void parse_window_animation_entry(Config& cfg, const std::string& path_st
                 cfg.set_window_animation_open_scale(s);
             } catch (...) {}
         }
+        else if (key == "tiled_style" || key == "style_tiled") cfg.set_window_open_tiled_style(value);
+        else if (key == "floating_style" || key == "style_floating") cfg.set_window_open_floating_style(value);
+        else if (key == "style") {
+            cfg.set_window_open_tiled_style(value);
+            cfg.set_window_open_floating_style(value);
+        }
+        else if (key == "defer_move" || key == "move_defer") { try { cfg.set_window_move_defer_ms(std::stoi(value)); } catch (...) {} }
     } else if (in_close) {
         if (key == "enabled") cfg.set_window_close_animation_enabled(value == "true" || value == "1" || value == "yes");
         else if (key == "duration") { try { cfg.set_window_animation_close_duration_ms(std::stoi(value)); } catch (...) {} }
@@ -1670,14 +1712,40 @@ void Config::parse_animation_directive(const std::string& value) {
         if (duration > 0) set_window_animation_open_duration_ms(duration);
         if (!curve.empty()) set_window_animation_open_curve(curve);
         if (popin_scale > 0.0) set_window_animation_open_scale(popin_scale);
+        if (!style.empty()) {
+            std::string s_lower = style;
+            std::transform(s_lower.begin(), s_lower.end(), s_lower.begin(), ::tolower);
+            if (s_lower == "split") {
+                set_window_open_tiled_style("split");
+            } else if (s_lower.rfind("popin", 0) == 0) {
+                set_window_open_tiled_style("popin");
+                set_window_open_floating_style("popin");
+            } else if (s_lower == "slide") {
+                set_window_open_tiled_style("slide");
+                set_window_open_floating_style("slide");
+            } else if (s_lower == "fade") {
+                set_window_open_tiled_style("fade");
+                set_window_open_floating_style("fade");
+            } else if (s_lower == "none") {
+                set_window_open_tiled_style("none");
+                set_window_open_floating_style("none");
+            }
+        }
     } else if (target == "windowsout" || target == "windowsclose") {
         set_window_close_animation_enabled(enabled);
         if (duration > 0) set_window_animation_close_duration_ms(duration);
         if (!curve.empty()) set_window_animation_close_curve(curve);
         if (popin_scale > 0.0) set_window_animation_close_scale(popin_scale);
     } else if (target == "windowsmove") {
-        if (duration > 0) set_window_animation_duration_ms(duration);
-        if (!curve.empty()) set_window_animation_curve(curve);
+        set_window_move_animation_enabled(enabled);
+        if (duration > 0) set_window_move_duration_ms(duration);
+        if (!curve.empty()) set_window_move_curve(curve);
+        if (tokens.size() > 4) {
+            try {
+                int def = std::stoi(tokens[4]);
+                set_window_move_defer_ms(def);
+            } catch (...) {}
+        }
     } else if (target == "fade") {
         set_window_animation_fade_enabled(enabled);
         if (duration > 0) {

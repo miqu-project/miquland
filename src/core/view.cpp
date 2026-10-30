@@ -1945,6 +1945,20 @@ void View::handle_map(struct wl_listener* listener, void* data) {
     }
     view->m_is_mapping = false;
 
+    if (view->is_split_opening()) {
+        view->set_split_opening(false);
+        view->focus();
+        if (view->m_server && view->m_server->get_ipc_server()) {
+            size_t ws_id = view->m_workspace ? view->m_workspace->get_id() : 0;
+            std::string payload = "{\"action\":\"map\",\"id\":" + std::to_string(view->m_id) +
+                ",\"title\":\"" + ipc::escape_json(view->get_title()) +
+                "\",\"app_id\":\"" + ipc::escape_json(view->get_app_id()) +
+                "\",\"workspace_id\":" + std::to_string(ws_id) + "}";
+            view->m_server->get_ipc_server()->broadcast_event("window", payload);
+        }
+        return;
+    }
+
     bool will_animate = (!view->is_override_redirect() && view->m_server && view->m_server->get_animation_manager() &&
         Config::get().is_window_animations_enabled() && !view->m_is_fullscreen);
 

@@ -1229,7 +1229,8 @@ void AnimationManager::schedule_view_geometry(View* view, const struct wlr_box& 
         return;
     }
 
-    if (!Config::get().is_window_animations_enabled() || view->is_fullscreen() || view->is_override_redirect()) {
+    if (!Config::get().is_window_animations_enabled() || !Config::get().is_window_move_animation_enabled() ||
+        view->is_fullscreen() || view->is_override_redirect()) {
         view->set_geometry(to_box.x, to_box.y, to_box.width, to_box.height);
         return;
     }
@@ -1263,14 +1264,19 @@ void AnimationManager::schedule_view_geometry(View* view, const struct wlr_box& 
         return;
     }
 
-    int duration = Config::get().get_window_animation_duration_ms();
-    auto easing = Easing::from_name(Config::get().get_window_animation_curve());
+    int duration = Config::get().get_window_move_duration_ms();
+    auto easing = Easing::from_name(Config::get().get_window_move_curve());
 
     // Notify client of target size immediately so it starts preparing target buffer
     view->notify_geometry_target(to_box.x, to_box.y, to_box.width, to_box.height);
 
     // Apply starting frame transform
     view->apply_geometry_animation(actual_from.x, actual_from.y, actual_from.width, actual_from.height);
+
+    double start_time = now;
+    if (Config::get().get_window_move_defer_ms() > 0 && !view->is_split_opening()) {
+        start_time += Config::get().get_window_move_defer_ms();
+    }
 
     ViewGeometryAnimation anim;
     anim.id = m_next_id++;
@@ -1283,7 +1289,7 @@ void AnimationManager::schedule_view_geometry(View* view, const struct wlr_box& 
     anim.target_y = to_box.y;
     anim.target_w = to_box.width;
     anim.target_h = to_box.height;
-    anim.start_time_ms = now;
+    anim.start_time_ms = start_time;
     anim.duration_ms = duration;
     anim.easing_fn = easing;
     anim.on_complete = [view, to_box]() {
@@ -1505,6 +1511,10 @@ void AnimationManager::tick(double now_ms) {
     for (auto& anim : m_geometry_animations) {
         if (!anim.view || !m_server || !m_server->is_valid_view(anim.view) || !anim.view->is_mapped() || !anim.view->get_scene_tree()) {
             anim.completed = true;
+            continue;
+        }
+
+        if (now_ms < anim.start_time_ms) {
             continue;
         }
 

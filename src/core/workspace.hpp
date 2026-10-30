@@ -66,6 +66,9 @@ public:
 
     void recalculate_layout(const struct wlr_box& usable_box);
     struct wlr_box calculate_tiled_geometry_for_new_view(const struct wlr_box& usable_box) const;
+    struct wlr_box calculate_split_opening_box(View* new_view, size_t new_view_idx,
+                                               const std::vector<struct wlr_box>& boxes,
+                                               class AnimationManager* anim_mgr) const;
     void arrange_floating_views(const struct wlr_box& usable_box);
 
     View* get_view(size_t index) const;
