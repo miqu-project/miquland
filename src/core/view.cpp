@@ -530,14 +530,8 @@ bool View::tearing_allowed() const {
 
 void View::get_surface_offset(int& out_x, int& out_y) const {
     int bw = (m_is_fullscreen || m_is_override_redirect) ? 0 : Config::get().get_window_border_width();
-    int geom_x = 0;
-    int geom_y = 0;
-    if (m_type == ViewType::Xdg && m_xdg_toplevel && m_xdg_toplevel->base) {
-        geom_x = m_xdg_toplevel->base->current.geometry.x;
-        geom_y = m_xdg_toplevel->base->current.geometry.y;
-    }
-    out_x = bw - geom_x;
-    out_y = bw - geom_y;
+    out_x = bw;
+    out_y = bw;
 }
 
 void View::set_geometry(int x, int y, int width, int height) {
