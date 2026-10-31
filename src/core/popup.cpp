@@ -119,9 +119,9 @@ void Popup::update_position() {
     if (!m_is_root || !m_scene_tree) return;
 
     if (m_view) {
-        int bw = (m_view->is_fullscreen() || m_view->is_override_redirect())
-            ? 0 : Config::get().get_window_border_width();
-        wlr_scene_node_set_position(&m_scene_tree->node, m_view->get_x() + bw, m_view->get_y() + bw);
+        int ox = 0, oy = 0;
+        m_view->get_surface_offset(ox, oy);
+        wlr_scene_node_set_position(&m_scene_tree->node, m_view->get_x() + ox, m_view->get_y() + oy);
     } else if (m_layer_surface) {
         wlr_scene_node_set_position(&m_scene_tree->node, m_layer_surface->get_geo_x(), m_layer_surface->get_geo_y());
     }
@@ -147,19 +147,12 @@ void Popup::unconstrain() {
         struct wlr_box output_box = {};
         wlr_output_layout_get_box(layout, output, &output_box);
 
-        int bw = (m_view->is_fullscreen() || m_view->is_override_redirect())
-            ? 0 : Config::get().get_window_border_width();
-
-        int geom_x = 0;
-        int geom_y = 0;
-        if (m_view->get_xdg_toplevel() && m_view->get_xdg_toplevel()->base) {
-            geom_x = m_view->get_xdg_toplevel()->base->current.geometry.x;
-            geom_y = m_view->get_xdg_toplevel()->base->current.geometry.y;
-        }
+        int ox = 0, oy = 0;
+        m_view->get_surface_offset(ox, oy);
 
         struct wlr_box toplevel_space_box = {
-            .x = output_box.x - (m_view->get_x() + bw) + geom_x,
-            .y = output_box.y - (m_view->get_y() + bw) + geom_y,
+            .x = output_box.x - (m_view->get_x() + ox),
+            .y = output_box.y - (m_view->get_y() + oy),
             .width = output_box.width,
             .height = output_box.height,
         };

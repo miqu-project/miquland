@@ -35,6 +35,7 @@ public:
     Workspace* get_workspace() const { return m_workspace; }
 
     void set_geometry(int x, int y, int width, int height);
+    void get_surface_offset(int& out_x, int& out_y) const;
     void set_fullscreen(bool fullscreen);
     bool is_fullscreen() const { return m_is_fullscreen; }
     void focus();

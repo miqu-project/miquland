@@ -528,6 +528,18 @@ bool View::tearing_allowed() const {
     return false;
 }
 
+void View::get_surface_offset(int& out_x, int& out_y) const {
+    int bw = (m_is_fullscreen || m_is_override_redirect) ? 0 : Config::get().get_window_border_width();
+    int geom_x = 0;
+    int geom_y = 0;
+    if (m_type == ViewType::Xdg && m_xdg_toplevel && m_xdg_toplevel->base) {
+        geom_x = m_xdg_toplevel->base->current.geometry.x;
+        geom_y = m_xdg_toplevel->base->current.geometry.y;
+    }
+    out_x = bw - geom_x;
+    out_y = bw - geom_y;
+}
+
 void View::set_geometry(int x, int y, int width, int height) {
     if (m_x == x && m_y == y && m_width == width && m_height == height && m_mapped) {
         return;
@@ -557,9 +569,12 @@ void View::set_geometry(int x, int y, int width, int height) {
     int client_w = std::max(1, width - 2 * bw);
     int client_h = std::max(1, height - 2 * bw);
 
+    int surf_ox = 0, surf_oy = 0;
+    get_surface_offset(surf_ox, surf_oy);
+
     if (m_type == ViewType::Xdg) {
         if (m_surface_scene_tree) {
-            wlr_scene_node_set_position(&m_surface_scene_tree->node, bw, bw);
+            wlr_scene_node_set_position(&m_surface_scene_tree->node, surf_ox, surf_oy);
         }
         if (m_xdg_toplevel) {
             if (!is_dialog() && !is_floating()) {
@@ -570,11 +585,17 @@ void View::set_geometry(int x, int y, int width, int height) {
             }
             if (m_xdg_toplevel->scheduled.width != client_w || m_xdg_toplevel->scheduled.height != client_h) {
                 wlr_xdg_toplevel_set_size(m_xdg_toplevel, client_w, client_h);
+                if (m_mapped && (is_floating() || is_dialog()) && m_server && m_server->get_output_manager()) {
+                    auto* out = m_server->get_output_manager()->get_primary_output();
+                    if (out && out->get_wlr_output()) {
+                        wlr_output_schedule_frame(out->get_wlr_output());
+                    }
+                }
             }
         }
     } else {
         if (m_surface_scene_tree) {
-            wlr_scene_node_set_position(&m_surface_scene_tree->node, bw, bw);
+            wlr_scene_node_set_position(&m_surface_scene_tree->node, surf_ox, surf_oy);
         }
         if (m_xwayland_surface && (size_changed || pos_changed)) {
             int conf_x = x + bw;
@@ -717,16 +738,17 @@ void View::set_fullscreen(bool fullscreen) {
             wlr_scene_node_reparent(&m_scene_tree->node, parent_tree);
         }
 
+        int surf_ox = 0, surf_oy = 0;
+        get_surface_offset(surf_ox, surf_oy);
+
         if (m_type == ViewType::Xdg && m_xdg_toplevel) {
             if (m_surface_scene_tree) {
-                int bw = Config::get().get_window_border_width();
-                wlr_scene_node_set_position(&m_surface_scene_tree->node, bw, bw);
+                wlr_scene_node_set_position(&m_surface_scene_tree->node, surf_ox, surf_oy);
             }
             wlr_xdg_toplevel_set_fullscreen(m_xdg_toplevel, false);
         } else if (m_type == ViewType::XWayland && m_xwayland_surface) {
             if (m_surface_scene_tree) {
-                int bw = Config::get().get_window_border_width();
-                wlr_scene_node_set_position(&m_surface_scene_tree->node, bw, bw);
+                wlr_scene_node_set_position(&m_surface_scene_tree->node, surf_ox, surf_oy);
             }
             wlr_xwayland_surface_set_fullscreen(m_xwayland_surface, false);
         }
@@ -994,10 +1016,10 @@ void View::update_corner_radius() {
 
     wlr_scene_subsurface_tree_set_clip(&m_surface_scene_tree->node, &clip);
 
-    if (!m_is_fullscreen && !m_is_overview_scaled && !m_is_animating_geometry) {
-        wlr_scene_node_set_position(&m_surface_scene_tree->node, bw, bw);
-    } else if (m_is_fullscreen) {
-        wlr_scene_node_set_position(&m_surface_scene_tree->node, 0, 0);
+    if (!m_is_overview_scaled && !m_is_animating_geometry) {
+        int ox = 0, oy = 0;
+        get_surface_offset(ox, oy);
+        wlr_scene_node_set_position(&m_surface_scene_tree->node, ox, oy);
     }
 
     int radius = 0;
@@ -1045,7 +1067,9 @@ void View::apply_animation_transform(double scale, float opacity) {
     if (scale >= 0.999 && !m_is_animating_geometry && !m_is_animating_close && !m_is_animating_open) {
         wlr_scene_node_set_position(&m_scene_tree->node, m_x, m_y);
         if (m_surface_scene_tree) {
-            wlr_scene_node_set_position(&m_surface_scene_tree->node, bw, bw);
+            int ox = 0, oy = 0;
+            get_surface_offset(ox, oy);
+            wlr_scene_node_set_position(&m_surface_scene_tree->node, ox, oy);
 
             int r = (!m_is_fullscreen && !m_is_override_redirect) ? Config::get().get_window_border_radius() : 0;
             int base_r = (bw > 0) ? std::max(0, r - bw) : std::max(0, r);
@@ -1116,10 +1140,12 @@ void View::apply_animation_transform(double scale, float opacity) {
 
     wlr_scene_node_set_position(&m_scene_tree->node, cur_x, cur_y);
 
-    int scaled_bw = static_cast<int>(std::round(static_cast<double>(bw) * scale));
-
     if (m_surface_scene_tree) {
-        wlr_scene_node_set_position(&m_surface_scene_tree->node, scaled_bw, scaled_bw);
+        int ox = 0, oy = 0;
+        get_surface_offset(ox, oy);
+        int surf_x = static_cast<int>(std::round(static_cast<double>(ox) * scale));
+        int surf_y = static_cast<int>(std::round(static_cast<double>(oy) * scale));
+        wlr_scene_node_set_position(&m_surface_scene_tree->node, surf_x, surf_y);
 
         int r = (!m_is_fullscreen && !m_is_override_redirect) ? Config::get().get_window_border_radius() : 0;
         int base_r = (bw > 0) ? std::max(0, r - bw) : std::max(0, r);
@@ -1316,7 +1342,9 @@ void View::apply_geometry_animation(int cur_x, int cur_y, int cur_w, int cur_h) 
     }
 
     if (m_surface_scene_tree) {
-        wlr_scene_node_set_position(&m_surface_scene_tree->node, bw, bw);
+        int ox = 0, oy = 0;
+        get_surface_offset(ox, oy);
+        wlr_scene_node_set_position(&m_surface_scene_tree->node, ox, oy);
 
         struct BufferScaleData {
             int target_w;
@@ -1384,7 +1412,9 @@ void View::finish_geometry_animation(int target_x, int target_y, int target_w, i
     int client_h = std::max(1, target_h - 2 * bw);
 
     if (m_surface_scene_tree) {
-        wlr_scene_node_set_position(&m_surface_scene_tree->node, bw, bw);
+        int ox = 0, oy = 0;
+        get_surface_offset(ox, oy);
+        wlr_scene_node_set_position(&m_surface_scene_tree->node, ox, oy);
 
         struct FinishBufferData {
             int target_w;
@@ -1535,7 +1565,9 @@ void View::set_overview_scaled(bool scaled, double scale) {
         int client_h = std::max(1, m_height - 2 * bw);
 
         if (m_surface_scene_tree) {
-            wlr_scene_node_set_position(&m_surface_scene_tree->node, bw, bw);
+            int ox = 0, oy = 0;
+            get_surface_offset(ox, oy);
+            wlr_scene_node_set_position(&m_surface_scene_tree->node, ox, oy);
             struct wlr_surface* root = get_wlr_surface();
 
             struct BufferRestoreData {
@@ -1617,8 +1649,11 @@ void View::reapply_overview_scale() {
         }
     }
 
-    int scaled_bw = static_cast<int>(std::round(bw * scale));
-    wlr_scene_node_set_position(&m_surface_scene_tree->node, scaled_bw, scaled_bw);
+    int ox = 0, oy = 0;
+    get_surface_offset(ox, oy);
+    int surf_x = static_cast<int>(std::round(ox * scale));
+    int surf_y = static_cast<int>(std::round(oy * scale));
+    wlr_scene_node_set_position(&m_surface_scene_tree->node, surf_x, surf_y);
 
     // Clip in root surface unscaled coordinate space to crop CSD drop-shadows
     struct wlr_box clip = {
@@ -2223,6 +2258,10 @@ void View::handle_commit(struct wl_listener* listener, void* data) {
                 if (view->m_workspace) {
                     view->m_server->get_workspace_manager()->recalculate_layout();
                 }
+            } else if (view->m_surface_scene_tree && !view->is_animating_geometry() && !view->is_overview_scaled()) {
+                int ox = 0, oy = 0;
+                view->get_surface_offset(ox, oy);
+                wlr_scene_node_set_position(&view->m_surface_scene_tree->node, ox, oy);
             }
         }
     } else if (view->m_type == ViewType::XWayland && Config::get().is_xwayland_force_zero_scaling_enabled()) {
