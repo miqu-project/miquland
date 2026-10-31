@@ -734,9 +734,12 @@ void InputManager::recheck_cursor_focus() {
     } else {
         Workspace* active_ws = m_server->get_workspace_manager() ? m_server->get_workspace_manager()->get_active_workspace() : nullptr;
         if (active_ws) {
-            View* best = m_server->get_workspace_manager()->find_best_focus_view(active_ws);
-            if (best && best != m_server->get_focused_view() && !best->is_override_redirect()) {
-                best->focus();
+            View* cur = m_server->get_focused_view();
+            if (!cur || cur->get_workspace() != active_ws || !cur->is_mapped()) {
+                View* best = m_server->get_workspace_manager()->find_best_focus_view(active_ws);
+                if (best && best != cur && !best->is_override_redirect()) {
+                    best->focus();
+                }
             }
         }
     }

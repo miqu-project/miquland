@@ -580,9 +580,6 @@ void WorkspaceManager::switch_to_workspace(size_t id, View* focus_view) {
     if (id == 0 || id == m_active_workspace_id) {
         if (focus_view) {
             focus_view->focus();
-            if (m_server && m_server->get_input_manager()) {
-                m_server->get_input_manager()->warp_cursor_to_view(focus_view);
-            }
         } else {
             if (m_server && m_server->get_input_manager()) {
                 m_server->get_input_manager()->recheck_cursor_focus();
@@ -619,9 +616,6 @@ void WorkspaceManager::switch_to_workspace(size_t id, View* focus_view) {
 
     if (focus_view) {
         focus_view->focus();
-        if (m_server && m_server->get_input_manager()) {
-            m_server->get_input_manager()->warp_cursor_to_view(focus_view);
-        }
     } else {
         View* best = find_best_focus_view(target);
         if (best) {
