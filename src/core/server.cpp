@@ -989,6 +989,10 @@ void Server::handle_new_layer_shell_surface(struct wl_listener* listener, void* 
     Server* server = wl_container_of(listener, server, m_new_layer_shell_surface_listener);
     auto* wlr_layer_surface = static_cast<struct wlr_layer_surface_v1*>(data);
 
+    if (server->m_input_manager && server->m_input_manager->is_app_launching()) {
+        server->m_input_manager->cancel_app_launch_cursor();
+    }
+
     if (!wlr_layer_surface->output && server->get_output_manager()) {
         auto* out = server->get_output_manager()->get_primary_output();
         if (out) {
@@ -1267,6 +1271,10 @@ void Server::handle_xdg_activation_request_activate(struct wl_listener* listener
     auto* event = static_cast<struct wlr_xdg_activation_v1_request_activate_event*>(data);
 
     if (!event || !event->surface) return;
+
+    if (server->m_input_manager && server->m_input_manager->is_app_launching()) {
+        server->m_input_manager->cancel_app_launch_cursor();
+    }
 
     for (const auto& v : server->m_views) {
         if (!v || !v->is_mapped()) continue;

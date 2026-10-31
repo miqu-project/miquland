@@ -407,6 +407,10 @@ void LayerSurface::reset_animation_transform() {
 void LayerSurface::handle_map(struct wl_listener* listener, void* data) {
     LayerSurface* surface = wl_container_of(listener, surface, m_map_listener);
 
+    if (surface->m_server && surface->m_server->get_input_manager()) {
+        surface->m_server->get_input_manager()->cancel_app_launch_cursor();
+    }
+
     // Ensure we have locked the buffer for exit animations
     if (!surface->m_current_buffer && surface->m_wlr_layer_surface && surface->m_wlr_layer_surface->surface) {
         if (surface->m_wlr_layer_surface->surface->buffer) {
@@ -470,6 +474,11 @@ void LayerSurface::handle_surface_commit(struct wl_listener* listener, void* dat
     struct wlr_layer_surface_v1* wlr_surface = surface->m_wlr_layer_surface;
 
     if (!wlr_surface->initialized) return;
+
+    if (surface->m_server && surface->m_server->get_input_manager() &&
+        surface->m_server->get_input_manager()->is_app_launching()) {
+        surface->m_server->get_input_manager()->cancel_app_launch_cursor();
+    }
 
     int old_w = surface->m_width;
     int old_h = surface->m_height;

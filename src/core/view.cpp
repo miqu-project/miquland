@@ -2121,6 +2121,12 @@ void View::handle_destroy(struct wl_listener* listener, void* data) {
 
 void View::handle_commit(struct wl_listener* listener, void* data) {
     View* view = wl_container_of(listener, view, m_commit_listener);
+
+    if (view->m_server && view->m_server->get_input_manager() &&
+        view->m_server->get_input_manager()->is_app_launching()) {
+        view->m_server->get_input_manager()->cancel_app_launch_cursor();
+    }
+
     if (view->m_type == ViewType::Xdg) {
         if (view->m_xdg_toplevel->base->initial_commit) {
             view->update_parent_relationship();
