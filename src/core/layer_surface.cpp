@@ -67,7 +67,7 @@ LayerSurface::~LayerSurface() {
 void LayerSurface::configure(const struct wlr_box* full_area, struct wlr_box* usable_area) {
     if (!m_scene_layer_surface) return;
     wlr_scene_layer_surface_v1_configure(m_scene_layer_surface, full_area, usable_area);
-    if (m_scene_layer_surface && m_scene_layer_surface->tree) {
+    if (m_scene_layer_surface && m_scene_layer_surface->tree && !m_animating) {
         m_geo_x = m_scene_layer_surface->tree->node.x;
         m_geo_y = m_scene_layer_surface->tree->node.y;
     }
