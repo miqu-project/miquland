@@ -223,6 +223,9 @@ SessionLock::~SessionLock() {
         m_destroy_listener.link.next = nullptr;
     }
     m_surfaces.clear();
+    if (m_server) {
+        m_server->set_session_lock_trees_enabled(true);
+    }
 }
 
 void SessionLock::handle_new_surface(struct wl_listener* listener, void* data) {

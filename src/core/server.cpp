@@ -508,6 +508,9 @@ void Server::handle_new_xdg_toplevel(struct wl_listener* listener, void* data) {
 
 void Server::handle_foreign_toplevel_capture_request(struct wl_listener* listener, void* data) {
     Server* server = wl_container_of(listener, server, m_foreign_toplevel_capture_request_listener);
+    if (!server || server->is_locked()) {
+        return;
+    }
     auto* request = static_cast<struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request*>(data);
     if (!request || !request->toplevel_handle) {
         return;
@@ -1053,11 +1056,15 @@ void Server::handle_new_session_lock(struct wl_listener* listener, void* data) {
 
     log_info("Activating new session lock");
     server->m_session_lock = std::make_unique<SessionLock>(server, lock);
+    server->set_session_lock_trees_enabled(false);
 }
 
 void Server::unlock_session() {
     if (!m_session_lock) return;
     log_info("Session unlocked successfully");
+
+    // Re-enable window and shell layer trees before unmap animation so desktop is visible behind closing lock surface
+    set_session_lock_trees_enabled(true);
 
     if (m_animation_manager) {
         for (const auto& surface : m_session_lock->get_surfaces()) {
@@ -1074,6 +1081,29 @@ void Server::unlock_session() {
         if (ws) {
             View* best = m_workspace_manager->find_best_focus_view(ws);
             if (best) best->focus();
+        }
+    }
+}
+
+void Server::set_session_lock_trees_enabled(bool enabled) {
+    if (m_workspaces_tree) {
+        wlr_scene_node_set_enabled(&m_workspaces_tree->node, enabled);
+    }
+    if (m_layer_top_tree) {
+        wlr_scene_node_set_enabled(&m_layer_top_tree->node, enabled);
+    }
+    if (m_layer_overlay_tree) {
+        wlr_scene_node_set_enabled(&m_layer_overlay_tree->node, enabled);
+    }
+    if (m_popup_tree) {
+        wlr_scene_node_set_enabled(&m_popup_tree->node, enabled);
+    }
+
+    if (m_output_manager) {
+        for (const auto& output : m_output_manager->get_outputs()) {
+            if (output && output->get_wlr_output() && output->get_wlr_output()->enabled) {
+                wlr_output_schedule_frame(output->get_wlr_output());
+            }
         }
     }
 }

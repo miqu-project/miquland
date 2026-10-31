@@ -104,6 +104,7 @@ public:
     bool is_locked() const;
     SessionLock* get_session_lock() const;
     void unlock_session();
+    void set_session_lock_trees_enabled(bool enabled);
     void handle_idle_inhibitor_destroy();
 
 private:
