@@ -31,6 +31,7 @@
 #include "scenefx/types/fx/blur_data.h"
 #include "scenefx/types/fx/clipped_region.h"
 #include "scenefx/types/linked_node.h"
+#include "scenefx/types/fx/gradient.h"
 
 struct wlr_output;
 struct wlr_output_layout;
@@ -94,6 +95,23 @@ enum wlr_scene_debug_damage_option {
 	WLR_SCENE_DEBUG_DAMAGE_HIGHLIGHT
 };
 
+enum wlr_scene_rect_fill_type {
+    FILL_SOLID_COLOR = 0,
+	FILL_GRADIENT = 1,
+};
+
+struct wlr_scene_rect_fill {
+	union {
+		float solid_color[4];
+		struct fx_gradient gradient;
+	};
+	enum wlr_scene_rect_fill_type type;
+};
+
+bool wlr_scene_rect_fill_is_opaque(struct wlr_scene_rect_fill const* fill);
+bool wlr_scene_rect_fill_is_invisible(struct wlr_scene_rect_fill const* fill);
+bool wlr_scene_rect_fill_is_black(struct wlr_scene_rect_fill const* fill);
+
 /** A sub-tree in the scene-graph. */
 struct wlr_scene_tree {
 	struct wlr_scene_node node;
@@ -147,13 +165,15 @@ struct wlr_scene_surface {
 	} WLR_PRIVATE;
 };
 
-/** A scene-graph node displaying a solid-colored rectangle */
+/** A scene-graph node displaying a colored rectangle */
 struct wlr_scene_rect {
 	struct wlr_scene_node node;
 	int width, height;
-	float color[4];
 
 	struct fx_corner_radii corners;
+
+	struct wlr_scene_rect_fill fill;
+
 	bool accepts_input;
 	struct clipped_region clipped_region;
 };
@@ -182,6 +202,10 @@ struct wlr_scene_blur {
 	bool should_only_blur_bottom_layer;
 
 	struct linked_node transparency_mask_source;
+
+	/* Pixels whose alpha is at or below this value are not blurred. Only
+	 * used when a transparency mask source is set. Default is 0.0f. */
+	float ignore_alpha_threshold;
 };
 
 /** A scene-graph node telling SceneFX to render the optimized blur */
@@ -573,6 +597,15 @@ void wlr_scene_rect_set_clipped_region(struct wlr_scene_rect *rect,
 void wlr_scene_rect_set_color(struct wlr_scene_rect *rect, const float color[static 4]);
 
 /**
+ * Change the gradient of an existing rectangle node.
+ *
+ * The memory pointed to by the `colors` member of `gradient` is not copied and
+ * must be managed and kept alive by the caller. The data must not be modified
+ * while the gradient is in use.
+ */
+void wlr_scene_rect_set_gradient(struct wlr_scene_rect *rect, const struct fx_gradient gradient);
+
+/**
  * Add a node displaying a shadow to the scene-graph.
  */
 struct wlr_scene_shadow *wlr_scene_shadow_create(struct wlr_scene_tree *parent,
@@ -660,6 +693,22 @@ struct wlr_scene_buffer *wlr_scene_blur_get_transparency_mask_source(
  * fade-out effect.
  */
 void wlr_scene_blur_set_alpha(struct wlr_scene_blur *blur, float alpha);
+
+/**
+ * Sets the threshold below which the blur ignores a pixel. Pixels whose
+ * surface alpha is at or below the value are skipped and left unblurred.
+ * The valid range is 0.0f -> 1.0f and values outside of it are clamped.
+ * Default is 0.0f, which only skips fully transparent pixels.
+ *
+ * This only takes effect when a transparency mask source has been set with
+ * wlr_scene_blur_set_transparency_mask_source(). Without a mask the blur mask
+ * pass is not used and this value is ignored.
+ *
+ * Note that the comparison is inclusive, so a value of 1.0f skips every
+ * pixel, including fully opaque ones, which disables the blur entirely.
+ */
+void wlr_scene_blur_set_ignore_alpha_threshold(struct wlr_scene_blur *blur,
+		float ignore_alpha_threshold);
 
 /**
  * Sets the blur strength from 1.0f -> 0.0f. This adjusts how strong the blur is

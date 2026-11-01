@@ -19,6 +19,8 @@
 #include "scenefx/render/fx_renderer/fx_offscreen_buffers.h"
 #include "scenefx/render/fx_renderer/fx_renderer.h"
 #include "scenefx/types/fx/blur_data.h"
+#include "scenefx/types/fx/gradient.h"
+#include "scenefx/types/wlr_scene.h"
 #include "util/matrix.h"
 
 #define MAX_QUADS 86 // 4kb
@@ -332,14 +334,15 @@ static bool apply_clip_region(pixman_region32_t *clip_region,
 		float left = fmax(corners->top_left, corners->bottom_left);
 		float right = fmax(corners->top_right, corners->bottom_right);
 
+		// Round inwards: truncating would overlap the top-left rounded corners
+		int x1 = ceil(clipped_region_box->x + left * 0.3);
+		int y1 = ceil(clipped_region_box->y + top * 0.3);
+		int x2 = floor(clipped_region_box->x + clipped_region_box->width - right * 0.3);
+		int y2 = floor(clipped_region_box->y + clipped_region_box->height - bottom * 0.3);
+
 		pixman_region32_t user_clip_region;
-		pixman_region32_init_rect(
-			&user_clip_region,
-			clipped_region_box->x + (left * 0.3),
-			clipped_region_box->y + (top * 0.3),
-			fmax(clipped_region_box->width - (left + right) * 0.3, 0),
-			fmax(clipped_region_box->height - (top + bottom) * 0.3, 0)
-		);
+		pixman_region32_init_rect(&user_clip_region, x1, y1,
+			x2 > x1 ? x2 - x1 : 0, y2 > y1 ? y2 - y1 : 0);
 		pixman_region32_subtract(clip_region, clip_region, &user_clip_region);
 		pixman_region32_fini(&user_clip_region);
 		return true;
@@ -476,6 +479,8 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass *pass,
 	glUniform1f(shader->alpha, alpha);
 
 	glUniform1f(shader->discard_transparent, fx_options->discard_transparent);
+	glUniform1f(shader->ignore_alpha_threshold,
+		fx_options->ignore_alpha_threshold);
 
 	if (use_effects) {
 		struct fx_corner_fradii corners = fx_options->corners;
@@ -521,15 +526,16 @@ void fx_render_pass_add_rect(struct fx_gles_render_pass *pass,
 		options->clip == NULL &&
 		box.x == 0 && box.y == 0 &&
 		box.width == wlr_buffer->width &&
-		box.height == wlr_buffer->height;
+		box.height == wlr_buffer->height &&
+		fx_options->fill_type == FILL_SOLID_COLOR;
 
 	TRACY_BOTH_ZONES_START(renderer);
 	TRACY_ZONE_TEXT_f("Box (WxH, X, Y): %dx%d, %d, %d", box.width, box.height, box.x, box.y);
-	TRACY_ZONE_TEXT_f("Color RGBA: %f, %f, %f, %f", color->r, color->g, color->b, color->a);
 	TRACY_ZONE_TEXT_f("Use fast clear optimization: %d", use_fast_clear);
 
 	push_fx_debug(renderer);
 	if (use_fast_clear) {
+		TRACY_ZONE_TEXT_f("Color RGBA: %f, %f, %f, %f", color->r, color->g, color->b, color->a);
 		glClearColor(color->r, color->g, color->b, color->a);
 		glClear(GL_COLOR_BUFFER_BIT);
 	} else {
@@ -544,6 +550,27 @@ void fx_render_pass_add_rect(struct fx_gles_render_pass *pass,
 				clipped_region_corners->top_right,
 				clipped_region_corners->bottom_left,
 				clipped_region_corners->bottom_right);
+		switch(fx_options->fill_type) {
+			case FILL_SOLID_COLOR:
+				TRACY_ZONE_TEXT_f("Color RGBA: %f, %f, %f, %f", color->r, color->g, color->b, color->a);
+				break;
+			case FILL_GRADIENT:
+				TRACY_ZONE_TEXT_f("Gradient:");
+				TRACY_ZONE_TEXT_f("\tKind: %s",
+						fx_options->gradient.kind == FX_GRADIENT_LINEAR ? "Linear"
+						: fx_options->gradient.kind == FX_GRADIENT_RADIAL ? "Radial"
+						: fx_options->gradient.kind == FX_GRADIENT_CONIC ? "Conic"
+						: "Unknown");
+				TRACY_ZONE_TEXT_f("\tNum Colors: %d", fx_options->gradient.colors_size);
+				TRACY_ZONE_TEXT_f("\tBlend: %d", fx_options->gradient.blend);
+				TRACY_ZONE_TEXT_f("\tAngle: %f", fx_options->gradient.angle);
+				TRACY_ZONE_TEXT_f("\tOrigin: %fx%f",
+						fx_options->gradient.origin[0], fx_options->gradient.origin[1]);
+				TRACY_ZONE_TEXT_f("\tRange (WxH, X, Y): %dx%d, %d, %d",
+						fx_options->gradient.range.width, fx_options->gradient.range.height,
+						fx_options->gradient.range.x, fx_options->gradient.range.y);
+				break;
+		}
 
 		pixman_region32_t clip_region;
 		if (options->clip) {
@@ -555,79 +582,58 @@ void fx_render_pass_add_rect(struct fx_gles_render_pass *pass,
 
 		apply_clip_region(&clip_region, clipped_region_box, clipped_region_corners);
 
-		setup_blending(blend_mode);
-		struct quad_shader *shader = should_clip
-			? &renderer->shaders.quad_clip
-			: &renderer->shaders.quad;
-		glUseProgram(shader->program);
-		set_proj_matrix(shader->proj, pass->projection_matrix, &box);
-		glUniform4f(shader->color, color->r, color->g, color->b, color->a);
-		if (should_clip) {
-			glUniform2f(shader->effects.clip_size, clipped_region_box->width, clipped_region_box->height);
-			glUniform2f(shader->effects.clip_position, clipped_region_box->x, clipped_region_box->y);
-			uniform_corner_radii_set(&shader->effects.clip_radius, clipped_region_corners);
+		// We must recompile the shader when the number of gradient colors
+		// exceeds the maximum number of colors in the shader.
+		if(fx_options->fill_type == FILL_GRADIENT) {
+			bool const recompile = 
+				renderer->shaders.quad.gradient_max_colors <= fx_options->gradient.colors_size;
+			if (recompile) {
+				glDeleteProgram(renderer->shaders.quad.program);
+				if (!link_quad_program(&renderer->shaders.quad, fx_options->gradient.colors_size + 1)) {
+					wlr_log(WLR_ERROR, "Could not link 'quad' shader after updating gradient.colors_size to %d. Aborting renderer", fx_options->gradient.colors_size + 1);
+					abort();
+				}
+			}
 		}
-		render(&box, &clip_region, shader->pos_attrib);
+
+		setup_blending(blend_mode);
+
+		struct quad_shader shader = renderer->shaders.quad;
+		glUseProgram(shader.program);
+
+		set_proj_matrix(shader.proj, pass->projection_matrix, &box);
+
+		glUniform2f(shader.size, box.width, box.height);
+		glUniform2f(shader.position, box.x, box.y);
+		glUniform1i(shader.effects_clip, should_clip);
+		glUniform1i(shader.fill_type, fx_options->fill_type);
+
+		switch(fx_options->fill_type) {
+			case FILL_SOLID_COLOR:
+				glUniform4f(shader.color, color->r, color->g, color->b, color->a);
+				break;
+			case FILL_GRADIENT:
+				glUniform1i(shader.gradient_kind, fx_options->gradient.kind);
+				glUniform4fv(shader.gradient_colors, fx_options->gradient.colors_size, (GLfloat*)fx_options->gradient.colors);
+				glUniform1i(shader.gradient_colors_size, fx_options->gradient.colors_size);
+				glUniform1f(shader.gradient_angle, fx_options->gradient.angle);
+				glUniform1i(shader.gradient_blend, fx_options->gradient.blend);
+				glUniform2f(shader.gradient_box, fx_options->gradient.range.x, fx_options->gradient.range.y);
+				glUniform2f(shader.gradient_size, fx_options->gradient.range.width, fx_options->gradient.range.height);
+				glUniform2f(shader.gradient_origin, fx_options->gradient.origin[0], fx_options->gradient.origin[1]);
+				break;
+		}
+
+		if (should_clip) {
+			glUniform2f(shader.effects.clip_size, clipped_region_box->width, clipped_region_box->height);
+			glUniform2f(shader.effects.clip_position, clipped_region_box->x, clipped_region_box->y);
+			uniform_corner_radii_set(&shader.effects.clip_radius, clipped_region_corners);
+		}
+
+		render(&box, &clip_region, shader.pos_attrib);
 
 		pixman_region32_fini(&clip_region);
 	}
-
-	pop_fx_debug(renderer);
-	TRACY_BOTH_ZONES_END;
-}
-
-void fx_render_pass_add_rect_grad(struct fx_gles_render_pass *pass,
-		const struct fx_render_rect_grad_options *fx_options) {
-	const struct wlr_render_rect_options *options = &fx_options->base;
-
-	struct fx_renderer *renderer = pass->buffer->renderer;
-
-	if (renderer->shaders.quad_grad.max_len <= fx_options->gradient.count) {
-		glDeleteProgram(renderer->shaders.quad_grad.program);
-		if (!link_quad_grad_program(&renderer->shaders.quad_grad, fx_options->gradient.count + 1)) {
-			wlr_log(WLR_ERROR, "Could not link quad shader after updating max_len to %d. Aborting renderer", fx_options->gradient.count + 1);
-			abort();
-		}
-	}
-
-	struct wlr_box box;
-	struct wlr_buffer *wlr_buffer = pass->buffer->buffer;
-	wlr_render_rect_options_get_box(options, wlr_buffer, &box);
-
-	TRACY_BOTH_ZONES_START(renderer);
-	TRACY_ZONE_TEXT_f("Box (WxH, X, Y): %dx%d, %d, %d", box.width, box.height, box.x, box.y);
-	TRACY_ZONE_TEXT_f("Gradient:");
-	TRACY_ZONE_TEXT_f("\tNum Colors: %d", fx_options->gradient.count);
-	TRACY_ZONE_TEXT_f("\tBlend: %d", fx_options->gradient.blend);
-	TRACY_ZONE_TEXT_f("\tDegree: %f", fx_options->gradient.degree);
-	TRACY_ZONE_TEXT_f("\tType: %s",
-			fx_options->gradient.linear == 1 ? "Linear"
-			: fx_options->gradient.linear == 2 ? "Conic"
-			: "Unknown");
-	TRACY_ZONE_TEXT_f("\tOrigin: %fx%f",
-			fx_options->gradient.origin[0], fx_options->gradient.origin[1]);
-	TRACY_ZONE_TEXT_f("\tRange (WxH, X, Y): %dx%d, %d, %d",
-			fx_options->gradient.range.width, fx_options->gradient.range.height,
-			fx_options->gradient.range.x, fx_options->gradient.range.y);
-	// TODO: Display Colors (not really sure how it works without a scene example...)
-	push_fx_debug(renderer);
-
-	setup_blending(options->blend_mode);
-
-	struct quad_grad_shader shader = renderer->shaders.quad_grad;
-	glUseProgram(shader.program);
-
-	set_proj_matrix(shader.proj, pass->projection_matrix, &box);
-	glUniform4fv(shader.colors, fx_options->gradient.count, (GLfloat*)fx_options->gradient.colors);
-	glUniform1i(shader.count, fx_options->gradient.count);
-	glUniform2f(shader.size, fx_options->gradient.range.width, fx_options->gradient.range.height);
-	glUniform1f(shader.degree, fx_options->gradient.degree);
-	glUniform1f(shader.linear, fx_options->gradient.linear);
-	glUniform1f(shader.blend, fx_options->gradient.blend);
-	glUniform2f(shader.grad_box, fx_options->gradient.range.x, fx_options->gradient.range.y);
-	glUniform2f(shader.origin, fx_options->gradient.origin[0], fx_options->gradient.origin[1]);
-
-	render(&box, options->clip, shader.pos_attrib);
 
 	pop_fx_debug(renderer);
 	TRACY_BOTH_ZONES_END;
@@ -643,6 +649,19 @@ void fx_render_pass_add_rounded_rect(struct fx_gles_render_pass *pass,
 	struct wlr_box box;
 	struct wlr_buffer *wlr_buffer = pass->buffer->buffer;
 	wlr_render_rect_options_get_box(options, wlr_buffer, &box);
+
+	// We must recompile the shader when the number of gradient colors
+	// exceeds the maximum number of colors in the shader.
+	if(fx_options->fill_type == FILL_GRADIENT) {
+		bool const recompile = renderer->shaders.quad_round.gradient_max_colors <= fx_options->gradient.colors_size;
+		if (recompile) {
+			glDeleteProgram(renderer->shaders.quad_round.program);
+			if (!link_quad_round_program(&renderer->shaders.quad_round, fx_options->gradient.colors_size + 1)) {
+				wlr_log(WLR_ERROR, "Could not link 'quad_round' shader after updating gradient.colors_size to %d. Aborting renderer", fx_options->gradient.colors_size + 1);
+				abort();
+			}
+		}
+	}
 
 	pixman_region32_t clip_region;
 	if (options->clip) {
@@ -665,22 +684,58 @@ void fx_render_pass_add_rounded_rect(struct fx_gles_render_pass *pass,
 			clipped_region_corners->top_right,
 			clipped_region_corners->bottom_left,
 			clipped_region_corners->bottom_right);
-	TRACY_ZONE_TEXT_f("Color RGBA: %f, %f, %f, %f", color->r, color->g, color->b, color->a);
 	TRACY_ZONE_TEXT_f("Corners (TL, TR, BL, BR): %f, %f, %f, %f",
 			clipped_region_corners->top_left,
 			clipped_region_corners->top_right,
 			clipped_region_corners->bottom_left,
 			clipped_region_corners->bottom_right);
+	switch(fx_options->fill_type) {
+		case FILL_SOLID_COLOR:
+			TRACY_ZONE_TEXT_f("Color RGBA: %f, %f, %f, %f", color->r, color->g, color->b, color->a);
+			break;
+		case FILL_GRADIENT:
+			TRACY_ZONE_TEXT_f("Gradient:");
+			TRACY_ZONE_TEXT_f("\tKind: %s",
+					fx_options->gradient.kind == FX_GRADIENT_LINEAR ? "Linear"
+					: fx_options->gradient.kind == FX_GRADIENT_RADIAL ? "Radial"
+					: fx_options->gradient.kind == FX_GRADIENT_CONIC ? "Conic"
+					: "Unknown");
+			TRACY_ZONE_TEXT_f("\tNum Colors: %d", fx_options->gradient.colors_size);
+			TRACY_ZONE_TEXT_f("\tBlend: %d", fx_options->gradient.blend);
+			TRACY_ZONE_TEXT_f("\tAngle: %f", fx_options->gradient.angle);
+			TRACY_ZONE_TEXT_f("\tOrigin: %fx%f",
+					fx_options->gradient.origin[0], fx_options->gradient.origin[1]);
+			TRACY_ZONE_TEXT_f("\tRange (WxH, X, Y): %dx%d, %d, %d",
+					fx_options->gradient.range.width, fx_options->gradient.range.height,
+					fx_options->gradient.range.x, fx_options->gradient.range.y);
+			break;
+	}
 	push_fx_debug(renderer);
 
 	setup_blending(WLR_RENDER_BLEND_MODE_PREMULTIPLIED);
 
 	struct quad_round_shader shader = renderer->shaders.quad_round;
-
 	glUseProgram(shader.program);
 
 	set_proj_matrix(shader.proj, pass->projection_matrix, &box);
-	glUniform4f(shader.color, color->r, color->g, color->b, color->a);
+	glUniform1i(shader.effects_clip, 1);
+	glUniform1i(shader.fill_type, fx_options->fill_type);
+
+	switch(fx_options->fill_type) {
+		case FILL_SOLID_COLOR:
+			glUniform4f(shader.color, color->r, color->g, color->b, color->a);
+			break;
+		case FILL_GRADIENT:
+			glUniform1i(shader.gradient_kind, fx_options->gradient.kind);
+			glUniform4fv(shader.gradient_colors, fx_options->gradient.colors_size, (GLfloat*)fx_options->gradient.colors);
+			glUniform1i(shader.gradient_colors_size, fx_options->gradient.colors_size);
+			glUniform1f(shader.gradient_angle, fx_options->gradient.angle);
+			glUniform1i(shader.gradient_blend, fx_options->gradient.blend);
+			glUniform2f(shader.gradient_box, fx_options->gradient.range.x, fx_options->gradient.range.y);
+			glUniform2f(shader.gradient_size, fx_options->gradient.range.width, fx_options->gradient.range.height);
+			glUniform2f(shader.gradient_origin, fx_options->gradient.origin[0], fx_options->gradient.origin[1]);
+			break;
+	}
 
 	glUniform2f(shader.size, box.width, box.height);
 	glUniform2f(shader.position, box.x, box.y);
@@ -698,81 +753,30 @@ void fx_render_pass_add_rounded_rect(struct fx_gles_render_pass *pass,
 	TRACY_BOTH_ZONES_END;
 }
 
-void fx_render_pass_add_rounded_rect_grad(struct fx_gles_render_pass *pass,
-		const struct fx_render_rounded_rect_grad_options *fx_options) {
-	const struct wlr_render_rect_options *options = &fx_options->base;
-
-	struct fx_renderer *renderer = pass->buffer->renderer;
-
-	if (renderer->shaders.quad_grad_round.max_len <= fx_options->gradient.count) {
-		glDeleteProgram(renderer->shaders.quad_grad_round.program);
-		if (!link_quad_grad_round_program(&renderer->shaders.quad_grad_round, fx_options->gradient.count + 1)) {
-			wlr_log(WLR_ERROR, "Could not link quad shader after updating max_len to %d. Aborting renderer", fx_options->gradient.count + 1);
-			abort();
-		}
-	}
-
-	struct wlr_box box;
-	struct wlr_buffer *wlr_buffer = pass->buffer->buffer;
-	wlr_render_rect_options_get_box(options, wlr_buffer, &box);
-
-	TRACY_BOTH_ZONES_START(renderer);
-	TRACY_ZONE_TEXT_f("Box (WxH, X, Y): %dx%d, %d, %d", box.width, box.height, box.x, box.y);
-	TRACY_ZONE_TEXT_f("Corners (TL, TR, BL, BR): %f, %f, %f, %f",
-			fx_options->corners.top_left,
-			fx_options->corners.top_right,
-			fx_options->corners.bottom_left,
-			fx_options->corners.bottom_right);
-	TRACY_ZONE_TEXT_f("Gradient:");
-	TRACY_ZONE_TEXT_f("\tNum Colors: %d", fx_options->gradient.count);
-	TRACY_ZONE_TEXT_f("\tBlend: %d", fx_options->gradient.blend);
-	TRACY_ZONE_TEXT_f("\tDegree: %f", fx_options->gradient.degree);
-	TRACY_ZONE_TEXT_f("\tType: %s",
-			fx_options->gradient.linear == 1 ? "Linear"
-			: fx_options->gradient.linear == 2 ? "Conic"
-			: "Unknown");
-	TRACY_ZONE_TEXT_f("\tOrigin: %fx%f",
-			fx_options->gradient.origin[0], fx_options->gradient.origin[1]);
-	TRACY_ZONE_TEXT_f("\tRange (WxH, X, Y): %dx%d, %d, %d",
-			fx_options->gradient.range.width, fx_options->gradient.range.height,
-			fx_options->gradient.range.x, fx_options->gradient.range.y);
-	// TODO: Display Colors (not really sure how it works without a scene example...)
-	push_fx_debug(renderer);
-
-	setup_blending(WLR_RENDER_BLEND_MODE_PREMULTIPLIED);
-
-	struct quad_grad_round_shader shader = renderer->shaders.quad_grad_round;
-	glUseProgram(shader.program);
-
-	set_proj_matrix(shader.proj, pass->projection_matrix, &box);
-
-	glUniform2f(shader.size, box.width, box.height);
-	glUniform2f(shader.position, box.x, box.y);
-
-	glUniform4fv(shader.colors, fx_options->gradient.count, (GLfloat*)fx_options->gradient.colors);
-	glUniform1i(shader.count, fx_options->gradient.count);
-	glUniform2f(shader.grad_size, fx_options->gradient.range.width, fx_options->gradient.range.height);
-	glUniform1f(shader.degree, fx_options->gradient.degree);
-	glUniform1f(shader.linear, fx_options->gradient.linear);
-	glUniform1f(shader.blend, fx_options->gradient.blend);
-	glUniform2f(shader.grad_box, fx_options->gradient.range.x, fx_options->gradient.range.y);
-	glUniform2f(shader.origin, fx_options->gradient.origin[0], fx_options->gradient.origin[1]);
-
-	struct fx_corner_fradii corners = fx_options->corners;
-	uniform_corner_radii_set(&shader.radius, &corners);
-
-	render(&box, options->clip, shader.pos_attrib);
-
-	pop_fx_debug(renderer);
-	TRACY_BOTH_ZONES_END;
-}
-
 void fx_render_pass_add_box_shadow(struct fx_gles_render_pass *pass,
 		const struct fx_render_box_shadow_options *options) {
 	struct fx_renderer *renderer = pass->buffer->renderer;
 
 	struct wlr_box box = options->box;
 	assert(box.width > 0 && box.height > 0);
+	if (options->blur_sigma <= 0.0f) {
+		fx_render_pass_add_rounded_rect(pass,
+				&(struct fx_render_rounded_rect_options){
+			.base = {
+				.box = box,
+				.color = options->color,
+				.clip = options->clip,
+			},
+			.corners = {
+				.top_left = options->corner_radius,
+				.top_right = options->corner_radius,
+				.bottom_right = options->corner_radius,
+				.bottom_left = options->corner_radius,
+			},
+			.clipped_region = options->clipped_region,
+		});
+		return;
+	}
 
 	pixman_region32_t clip_region;
 	if (options->clip) {
@@ -801,8 +805,7 @@ void fx_render_pass_add_box_shadow(struct fx_gles_render_pass *pass,
 	TRACY_ZONE_TEXT_f("\tBlur Sigma: %f", options->blur_sigma);
 	push_fx_debug(renderer);
 
-	// blending will practically always be needed (unless we have a madman
-	// who uses opaque shadows with zero sigma), so just enable it
+	// Blurred edges require blending, so just enable it
 	setup_blending(WLR_RENDER_BLEND_MODE_PREMULTIPLIED);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -830,10 +833,12 @@ void fx_render_pass_add_box_shadow(struct fx_gles_render_pass *pass,
 	TRACY_BOTH_ZONES_END;
 }
 
-// Renders the blur for each damaged rect and swaps the buffer
+// Renders the blur for each damaged rect and swaps the buffer.
+// src_level is the downscale level of the current buffer's content, which only
+// occupies the top-left (1 / 2^src_level) part of the buffer.
 static void render_blur_segments(struct fx_gles_render_pass *pass,
 		struct fx_render_blur_pass_options *fx_options, struct blur_shader* shader,
-		float min_u, float min_v, float max_u, float max_v) {
+		int src_level) {
 	struct fx_render_texture_options *tex_options = &fx_options->tex_options;
 	struct wlr_render_texture_options *options = &tex_options->base;
 	struct fx_renderer *renderer = pass->buffer->renderer;
@@ -896,12 +901,17 @@ static void render_blur_segments(struct fx_gles_render_pass *pass,
 				0.5f / (options->texture->height * 2.0f));
 	}
 
-	if (shader->min_uv >= 0) {
-		glUniform2f(shader->min_uv, min_u, min_v);
-	}
-	if (shader->max_uv >= 0) {
-		glUniform2f(shader->max_uv, max_u, max_v);
-	}
+	// Clamp samples to the texel centers of the valid source area, so that the
+	// screen edges get extended instead of blending with stale buffer contents.
+	// Matches the rounding of wlr_region_scale, which rounds the damage outwards.
+	float tex_width = options->texture->width;
+	float tex_height = options->texture->height;
+	float level_width = ceilf(tex_width / (1 << src_level));
+	float level_height = ceilf(tex_height / (1 << src_level));
+	glUniform2f(shader->uv_min, 0.5f / tex_width, 0.5f / tex_height);
+	glUniform2f(shader->uv_max,
+			(level_width - 0.5f) / tex_width,
+			(level_height - 0.5f) / tex_height);
 
 	set_proj_matrix(shader->proj, pass->projection_matrix, &dst_box);
 	set_tex_matrix(shader->tex_proj, options->transform, &src_fbox);
@@ -1002,12 +1012,11 @@ static struct fx_framebuffer *get_main_buffer_blur(struct fx_gles_render_pass *p
 		return NULL;
 	}
 	fx_options->blur_data = &blur_data;
+	fx_options->tex_options.base.transform = WL_OUTPUT_TRANSFORM_NORMAL;
 
 	pixman_region32_t damage;
 	pixman_region32_init(&damage);
 	pixman_region32_copy(&damage, fx_options->tex_options.base.clip);
-	wlr_region_transform(&damage, &damage, fx_options->tex_options.base.transform,
-			buffer_bounds.width, buffer_bounds.height);
 
 	wlr_region_expand(&damage, &damage, blur_data_calc_size(&blur_data));
 	// Make sure that the region doesn't expand past the buffer bounds
@@ -1064,30 +1073,14 @@ static struct fx_framebuffer *get_main_buffer_blur(struct fx_gles_render_pass *p
 	// Downscale
 	for (int i = 0; i < blur_data.num_passes; ++i) {
 		wlr_region_scale(&scaled_damage, &damage, 1.0f / (1 << (i + 1)));
-
-		float source_scale = 1.0f / (1 << i);
-		float min_u = 0.5f / (float)buffer_bounds.width;
-		float min_v = 0.5f / (float)buffer_bounds.height;
-		float max_u = fmaxf(min_u, source_scale - 0.5f / (float)buffer_bounds.width);
-		float max_v = fmaxf(min_v, source_scale - 0.5f / (float)buffer_bounds.height);
-
-		render_blur_segments(pass, fx_options, &renderer->shaders.blur1,
-				min_u, min_v, max_u, max_v);
+		render_blur_segments(pass, fx_options, &renderer->shaders.blur1, i);
 	}
 
 	// Upscale
 	for (int i = blur_data.num_passes - 1; i >= 0; --i) {
 		// when upsampling we make the region twice as big
 		wlr_region_scale(&scaled_damage, &damage, 1.0f / (1 << i));
-
-		float source_scale = 1.0f / (1 << (i + 1));
-		float min_u = 0.5f / (float)buffer_bounds.width;
-		float min_v = 0.5f / (float)buffer_bounds.height;
-		float max_u = fmaxf(min_u, source_scale - 0.5f / (float)buffer_bounds.width);
-		float max_v = fmaxf(min_v, source_scale - 0.5f / (float)buffer_bounds.height);
-
-		render_blur_segments(pass, fx_options, &renderer->shaders.blur2,
-				min_u, min_v, max_u, max_v);
+		render_blur_segments(pass, fx_options, &renderer->shaders.blur2, i + 1);
 	}
 
 	pixman_region32_fini(&scaled_damage);
@@ -1165,6 +1158,7 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass *pass,
 
 		struct fx_render_texture_options tex_options = fx_options->tex_options;
 		tex_options.discard_transparent = true;
+		tex_options.ignore_alpha_threshold = fx_options->ignore_alpha_threshold;
 		tex_options.clipped_region = fx_options->clipped_region;
 		fx_render_pass_add_texture(pass, &tex_options);
 

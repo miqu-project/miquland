@@ -32,9 +32,7 @@ set(SHADER_NAMES
     gradient.frag
     corner_alpha.frag
     quad.frag
-    quad_grad.frag
     quad_round.frag
-    quad_grad_round.frag
     tex.frag
     box_shadow.frag
     blur1.frag
@@ -73,6 +71,7 @@ add_library(scenefx STATIC
     types/output/output.c
     types/fx/blur_data.c
     types/fx/clipped_region.c
+    types/fx/gradient.c
     util/array.c
     util/env.c
     util/matrix.c

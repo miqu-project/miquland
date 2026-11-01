@@ -40,6 +40,70 @@
 #define DMABUF_FEEDBACK_DEBOUNCE_FRAMES  30
 #define HIGHLIGHT_DAMAGE_FADEOUT_TIME   250
 
+bool wlr_scene_rect_fill_is_opaque(struct wlr_scene_rect_fill const* const fill) {
+	switch(fill->type) {
+	case FILL_SOLID_COLOR: {
+		return fill->solid_color[3] == 1.0;	
+	} break;
+
+	case FILL_GRADIENT: {
+		struct fx_gradient const* const gradient = &fill->gradient;
+		for(int32_t i = 0; i < gradient->colors_size; i += 1) {
+			if(gradient->colors[4 * i + 3] != 1.0) {
+				return false;	
+			}
+		}
+		return true;
+	} break;
+	}
+	// Unreachable.
+	abort();
+}
+
+bool wlr_scene_rect_fill_is_invisible(struct wlr_scene_rect_fill const* fill) {
+	switch(fill->type) {
+	case FILL_SOLID_COLOR: {
+		return fill->solid_color[3] == 0.0;	
+	} break;
+
+	case FILL_GRADIENT: {
+		struct fx_gradient const* const gradient = &fill->gradient;
+		for(int32_t i = 0; i < gradient->colors_size; i += 1) {
+			if(gradient->colors[4 * i + 3] != 0.0) {
+				return false;	
+			}
+		}
+		return true;
+	} break;
+	}
+	// Unreachable.
+	abort();
+}
+
+bool wlr_scene_rect_fill_is_black(struct wlr_scene_rect_fill const* fill) {
+	switch(fill->type) {
+	case FILL_SOLID_COLOR: {
+		float const* const color = fill->solid_color;
+		return color[0] == 0.0 && color[1] == 0.0 && color[2] == 0.0;	
+	} break;
+
+	case FILL_GRADIENT: {
+		struct fx_gradient const* const gradient = &fill->gradient;
+		for(int32_t i = 0; i < gradient->colors_size; i += 1) {
+			float const* const color = gradient->colors + (4 * i);
+            bool const black = color[0] == 0.0 && color[1] == 0.0 && 
+				               color[2] == 0.0;
+			if(!black) {
+				return false;	
+			}
+		}
+		return true;
+	} break;
+	}
+	// Unreachable.
+	abort();
+}
+
 struct wlr_scene_tree *wlr_scene_tree_from_node(struct wlr_scene_node *node) {
 	assert(node->type == WLR_SCENE_NODE_TREE);
 	struct wlr_scene_tree *tree = wl_container_of(node, tree, node);
@@ -327,7 +391,7 @@ static void scene_node_opaque_region(struct wlr_scene_node *node, int x, int y,
 
 	if (node->type == WLR_SCENE_NODE_RECT) {
 		struct wlr_scene_rect *scene_rect = wlr_scene_rect_from_node(node);
-		if (scene_rect->color[3] != 1) {
+		if (!wlr_scene_rect_fill_is_opaque(&scene_rect->fill)) {
 			return;
 		}
 
@@ -532,7 +596,21 @@ static void update_node_update_outputs(struct wlr_scene_node *node,
 	uint64_t active_outputs = 0;
 
 	if (!pixman_region32_empty(&node->visible)) {
-		uint32_t visible_area = region_area(&node->visible);
+		struct wlr_scene_output *scene_output;
+
+		// Compute the region covered by all outputs, then intersect with the
+		// node's visible region
+		pixman_region32_t visible;
+		pixman_region32_init(&visible);
+		wl_list_for_each(scene_output, outputs, link) {
+			int width, height;
+			wlr_output_effective_resolution(scene_output->output, &width, &height);
+			pixman_region32_union_rect(&visible, &visible,
+				scene_output->x, scene_output->y, width, height);
+		}
+		pixman_region32_intersect(&visible, &visible, &node->visible);
+		uint32_t visible_area = region_area(&visible);
+		pixman_region32_fini(&visible);
 
 		// let's update the outputs in two steps:
 		//  - the primary outputs
@@ -540,7 +618,6 @@ static void update_node_update_outputs(struct wlr_scene_node *node,
 		// This ensures that the enter/leave signals can rely on the primary output
 		// to have a reasonable value. Otherwise, they may get a value that's in
 		// the middle of a calculation.
-		struct wlr_scene_output *scene_output;
 		wl_list_for_each(scene_output, outputs, link) {
 			if (scene_output == ignore) {
 				continue;
@@ -564,9 +641,9 @@ static void update_node_update_outputs(struct wlr_scene_node *node,
 			uint32_t overlap = region_area(&intersection);
 			pixman_region32_fini(&intersection);
 
-			// If the overlap accounts for less than 10% of the visible node area,
+			// If the overlap accounts for 10% of the visible node area or less,
 			// ignore this output
-			if (overlap >= 0.1 * visible_area) {
+			if (overlap > 0.1 * visible_area) {
 				if (overlap >= largest_overlap) {
 					largest_overlap = overlap;
 					scene_buffer->primary_output = scene_output;
@@ -576,11 +653,6 @@ static void update_node_update_outputs(struct wlr_scene_node *node,
 				count++;
 			}
 		}
-	}
-
-	if (old_primary_output != scene_buffer->primary_output) {
-		scene_buffer->prev_feedback_options =
-			(struct wlr_linux_dmabuf_feedback_v1_init_options){0};
 	}
 
 	uint64_t old_active = scene_buffer->active_outputs;
@@ -876,7 +948,8 @@ struct wlr_scene_rect *wlr_scene_rect_create(struct wlr_scene_tree *parent,
 
 	scene_rect->width = width;
 	scene_rect->height = height;
-	memcpy(scene_rect->color, color, sizeof(scene_rect->color));
+	scene_rect->fill.type = FILL_SOLID_COLOR;
+	memcpy(scene_rect->fill.solid_color, color, sizeof(scene_rect->fill.solid_color));
 	scene_rect->corners = (struct fx_corner_radii){0};
 	scene_rect->accepts_input = true;
 	scene_rect->clipped_region = clipped_region_get_default();
@@ -899,11 +972,32 @@ void wlr_scene_rect_set_size(struct wlr_scene_rect *rect, int width, int height)
 }
 
 void wlr_scene_rect_set_color(struct wlr_scene_rect *rect, const float color[static 4]) {
-	if (memcmp(rect->color, color, sizeof(rect->color)) == 0) {
-		return;
+	bool const fill_type_unchanged = rect->fill.type == FILL_SOLID_COLOR;
+	if (fill_type_unchanged) {
+		bool const color_unchanged = 
+			memcmp(rect->fill.solid_color, color, sizeof(rect->fill.solid_color)) == 0;
+		if(color_unchanged) {
+			return;
+		}
 	}
 
-	memcpy(rect->color, color, sizeof(rect->color));
+	rect->fill.type = FILL_SOLID_COLOR;
+	memcpy(rect->fill.solid_color, color, sizeof(rect->fill.solid_color));
+	scene_node_update(&rect->node, NULL);
+}
+
+void wlr_scene_rect_set_gradient(struct wlr_scene_rect *rect, const struct fx_gradient gradient) {
+	bool const fill_type_unchanged = rect->fill.type == FILL_GRADIENT;
+	if (fill_type_unchanged) {
+		bool const gradient_unchanged = 
+			fx_gradient_compare_equal(&rect->fill.gradient, &gradient);
+		if(gradient_unchanged) {
+			return;
+		}
+	}
+
+	rect->fill.type = FILL_GRADIENT;
+	rect->fill.gradient = gradient;
 	scene_node_update(&rect->node, NULL);
 }
 
@@ -1093,6 +1187,7 @@ struct wlr_scene_blur *wlr_scene_blur_create(struct wlr_scene_tree *parent,
 
 	blur->alpha = 1.0f;
 	blur->strength = 1.0f;
+	blur->ignore_alpha_threshold = 0.0f;
 	blur->clipped_region = (struct clipped_region){0};
 	blur->corners = corner_radii_all(0);
 	blur->should_only_blur_bottom_layer = false;
@@ -1176,6 +1271,22 @@ void wlr_scene_blur_set_alpha(struct wlr_scene_blur *blur, float alpha) {
 	}
 
 	blur->alpha = alpha;
+	scene_node_update(&blur->node, NULL);
+}
+
+void wlr_scene_blur_set_ignore_alpha_threshold(struct wlr_scene_blur *blur,
+		float ignore_alpha_threshold) {
+	if (ignore_alpha_threshold < 0.0f) {
+		ignore_alpha_threshold = 0.0f;
+	} else if (ignore_alpha_threshold > 1.0f) {
+		ignore_alpha_threshold = 1.0f;
+	}
+
+	if (blur->ignore_alpha_threshold == ignore_alpha_threshold) {
+		return;
+	}
+
+	blur->ignore_alpha_threshold = ignore_alpha_threshold;
 	scene_node_update(&blur->node, NULL);
 }
 
@@ -1989,6 +2100,7 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 		wlr_output_transform_compose(WL_OUTPUT_TRANSFORM_NORMAL, data->transform);
 
 	struct wlr_scene *scene = data->output->scene;
+	// TODO: function for each case?
 	switch (node->type) {
 	case WLR_SCENE_NODE_TREE:
 		assert(false);
@@ -2009,21 +2121,26 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 		transform_output_box(&rect_clipped_region_box, data);
 		fx_corner_radii_transform(node_transform, &rect_clipped_corners);
 
+		struct wlr_render_color rect_color = { 0.0, 0.0, 0.0, 1.0 };
+		if (scene_rect->fill.type == FILL_SOLID_COLOR) {
+			rect_color.r = scene_rect->fill.solid_color[0];
+			rect_color.g = scene_rect->fill.solid_color[1];
+			rect_color.b = scene_rect->fill.solid_color[2];
+			rect_color.a = scene_rect->fill.solid_color[3];
+		}
+
 		struct fx_render_rect_options rect_options = {
 			.base = {
 				.box = dst_box,
-				.color = {
-					.r = scene_rect->color[0],
-					.g = scene_rect->color[1],
-					.b = scene_rect->color[2],
-					.a = scene_rect->color[3],
-				},
+				.color = rect_color,
 				.clip = &render_region,
 			},
 			.clipped_region = {
 				.area = rect_clipped_region_box,
 				.corners = fx_corner_radii_scale(rect_clipped_corners, data->scale),
 			},
+			.fill_type = scene_rect->fill.type,
+			.gradient = scene_rect->fill.gradient,
 		};
 
 		// TODO: Use the base wlr_render_pass_add_rect as a fast-path in the future
@@ -2032,6 +2149,8 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 				.base = rect_options.base,
 				.corners = fx_corner_radii_scale(rect_corners, data->scale),
 				.clipped_region = rect_options.clipped_region,
+				.fill_type = scene_rect->fill.type,
+				.gradient = scene_rect->fill.gradient,
 			};
 			fx_render_pass_add_rounded_rect(fx_pass, &rounded_rect_options);
 		} else {
@@ -2084,13 +2203,6 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			WLR_COLOR_TRANSFER_FUNCTION_SRGB, &srgb_lum);
 		float luminance_multiplier = get_luminance_multiplier(&src_lum, &srgb_lum);
 
-		bool has_corner_effects = !fx_corner_radii_is_empty(&buffer_corners);
-
-		enum wlr_render_blend_mode blend_mode =
-			has_corner_effects ? WLR_RENDER_BLEND_MODE_PREMULTIPLIED :
-			(!data->output->scene->calculate_visibility || !pixman_region32_empty(&opaque) ?
-				WLR_RENDER_BLEND_MODE_PREMULTIPLIED : WLR_RENDER_BLEND_MODE_NONE);
-
 		struct fx_render_texture_options tex_options = {
 			.base = (struct wlr_render_texture_options){
 				.texture = texture,
@@ -2100,7 +2212,9 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 				.clip = &render_region, // Render with the smaller region, clipping CSD
 				.alpha = &scene_buffer->opacity,
 				.filter_mode = scene_buffer->filter_mode,
-				.blend_mode = blend_mode,
+				.blend_mode = !data->output->scene->calculate_visibility ||
+					!pixman_region32_empty(&opaque) ?
+					WLR_RENDER_BLEND_MODE_PREMULTIPLIED : WLR_RENDER_BLEND_MODE_NONE,
 				.transfer_function = scene_buffer->transfer_function,
 				.primaries = scene_buffer->primaries != 0 ? &primaries : NULL,
 				.color_encoding = scene_buffer->color_encoding,
@@ -2111,7 +2225,6 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			},
 			.clip_box = &dst_box,
 			.corners = fx_corner_radii_scale(buffer_corners, data->scale),
-			.discard_transparent = has_corner_effects,
 			.clipped_region = {0},
 		};
 
@@ -2153,7 +2266,7 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 				.area = shadow_clipped_region_box,
 				.corners = fx_corner_radii_scale(shadow_clipped_corners, data->scale),
 			},
-			.blur_sigma = scene_shadow->blur_sigma * data->scale,
+			.blur_sigma = scene_shadow->blur_sigma,
 			.corner_radius = scene_shadow->corner_radius * data->scale,
 			.color = {
 				.r = scene_shadow->color[0],
@@ -2234,6 +2347,7 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			.use_optimized_blur = blur->should_only_blur_bottom_layer,
 			.blur_data = &scene->blur_data,
 			.ignore_transparent = mask != NULL,
+			.ignore_alpha_threshold = blur->ignore_alpha_threshold,
 			.blur_strength = blur->strength,
 		};
 		fx_render_pass_add_blur(fx_pass, &blur_options);
@@ -2567,7 +2681,7 @@ static bool scene_node_invisible(struct wlr_scene_node *node) {
 	} else if (node->type == WLR_SCENE_NODE_RECT) {
 		struct wlr_scene_rect *rect = wlr_scene_rect_from_node(node);
 		// TODO: Check if clipped region covers whole rect?
-		return rect->color[3] == 0.f;
+		return wlr_scene_rect_fill_is_invisible(&rect->fill);
 	} else if (node->type == WLR_SCENE_NODE_BUFFER) {
 		struct wlr_scene_buffer *buffer = wlr_scene_buffer_from_node(node);
 
@@ -2600,10 +2714,8 @@ static bool scene_buffer_is_black_opaque(struct wlr_scene_buffer *scene_buffer) 
 }
 
 static bool scene_rect_is_black_opaque(struct wlr_scene_rect *scene_rect) {
-	return scene_rect->color[0] == 0.f &&
-		scene_rect->color[1] == 0.f &&
-		scene_rect->color[2] == 0.f &&
-		scene_rect->color[3] == 1.f &&
+	return wlr_scene_rect_fill_is_opaque(&scene_rect->fill) &&
+		wlr_scene_rect_fill_is_black(&scene_rect->fill) &&
 		fx_corner_radii_is_empty(&scene_rect->corners) &&
 		fx_corner_radii_is_empty(&scene_rect->clipped_region.corners) &&
 		wlr_box_empty(&scene_rect->clipped_region.area);
@@ -2923,6 +3035,11 @@ static bool apply_blur_region(struct wlr_scene_node *node, struct blur_data *blu
 	pixman_region32_t intersection;
 	pixman_region32_init(&intersection);
 	if (pixman_region32_intersect(&intersection, &expanded_damage, &node_visible_region)) {
+		pixman_region32_intersect_rect(&intersection, &intersection,
+			0, 0, output->width, output->height);
+	}
+
+	if (!pixman_region32_empty(&intersection)) {
 		should_compensate_blur = true;
 
 		// Expand the render damage to re-render surrounding blur nodes
@@ -3317,11 +3434,17 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
 		pixman_region32_init(&original_damage);
 		pixman_region32_copy(&original_damage, &render_data.damage);
 
-		// Only compensate for blur artifacts when the damage doesn't span
+		// Only compensate for blur artifacts when the damage doesn't cover
 		// the whole output
+		const pixman_box32_t output_box = {
+			.x1 = 0,
+			.y1 = 0,
+			.x2 = buffer->width,
+			.y2 = buffer->height,
+		};
 		const bool full_damage =
-			original_damage.extents.x2 - original_damage.extents.x1 >= output->width
-			&& original_damage.extents.y2 - original_damage.extents.y1 >= output->height;
+			pixman_region32_contains_rectangle(&original_damage, &output_box) ==
+			PIXMAN_REGION_IN;
 
 		// The extra region we copy and paste onto the framebuffer after render
 		// for artifact removal
