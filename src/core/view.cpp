@@ -461,6 +461,7 @@ void View::set_floating(bool floating) {
             }
         }
     }
+    update_blur();
 }
 
 bool View::is_focused() const {
@@ -798,6 +799,11 @@ void View::update_blur() {
         wlr_scene_blur_set_size(m_blur_node, m_width, m_height);
         int r = Config::get().get_window_border_radius();
         wlr_scene_blur_set_corner_radius(m_blur_node, r);
+
+        bool default_bottom_only = (!is_floating() && !is_dialog());
+        bool bottom_only = Config::get().is_window_blur_bottom_only(app_id, title, default_bottom_only);
+        wlr_scene_blur_set_should_only_blur_bottom_layer(m_blur_node, bottom_only);
+
         wlr_scene_node_set_enabled(&m_blur_node->node, true);
     }
 }

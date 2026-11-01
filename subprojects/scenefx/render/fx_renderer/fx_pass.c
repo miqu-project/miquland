@@ -1133,7 +1133,7 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass *pass,
 	TRACY_ZONE_TEXT_f("Use Optimized Blur: %d", fx_options->use_optimized_blur);
 	TRACY_ZONE_TEXT_f("Optimized Blur Successfully Used: %d",
 			buffer && fx_options->use_optimized_blur);
-	if (!fx_options->use_optimized_blur || has_strength) {
+	if (!fx_options->use_optimized_blur || has_strength || !buffer) {
 		// Render the blur into its own buffer
 		struct fx_render_blur_pass_options blur_options = *fx_options;
 		if (fx_options->use_optimized_blur && has_strength) {

@@ -541,6 +541,7 @@ public:
     std::string get_window_shadow_color(const std::string& app_id, const std::string& title, const std::string& default_col) const;
     int get_window_shadow_corner_radius(const std::string& app_id, const std::string& title, int default_val) const;
     bool is_window_blur_enabled(const std::string& app_id, const std::string& title, bool default_val) const;
+    bool is_window_blur_bottom_only(const std::string& app_id, const std::string& title, bool default_val) const;
 
     const std::vector<MonitorRule>& get_monitor_rules() const { return m_monitor_rules; }
     void add_monitor_rule(const MonitorRule& rule) { m_monitor_rules.push_back(rule); }

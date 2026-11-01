@@ -485,6 +485,17 @@ bool Config::is_window_blur_enabled(const std::string& app_id, const std::string
     return default_val;
 }
 
+bool Config::is_window_blur_bottom_only(const std::string& app_id, const std::string& title, bool default_val) const {
+    for (const auto& r : m_window_rules) {
+        if (matches_target(r.target, app_id) || matches_target(r.target, title)) {
+            if (r.rule == "blur_bottom_only" || r.rule == "blur_wallpaper_only" || r.rule == "bottom_only") {
+                return (r.extra.empty() || r.extra == "true" || r.extra == "1" || r.extra == "yes");
+            }
+        }
+    }
+    return default_val;
+}
+
 float Config::get_window_shadow_blur_sigma(const std::string& app_id, const std::string& title, float default_val) const {
     for (const auto& r : m_window_rules) {
         if (r.rule == "shadow_range" || r.rule == "shadow_blur_sigma" || r.rule == "shadow_sigma") {
@@ -2198,6 +2209,9 @@ void Config::parse_windowrule_entry(const std::string& target, const std::string
         } else if (key == "radius" || key == "passes") {
             file_rules.push_back({ "blur_" + key, target, value });
             has_rules_in_file = true;
+        } else if (key == "bottom_only" || key == "wallpaper_only" || key == "blur_bottom_only") {
+            file_rules.push_back({ "blur_bottom_only", target, value });
+            has_rules_in_file = true;
         }
         return;
     }
@@ -2281,6 +2295,9 @@ void Config::parse_windowrule_entry(const std::string& target, const std::string
         has_rules_in_file = true;
     } else if (key == "blur") {
         file_rules.push_back({ "blur", target, value });
+        has_rules_in_file = true;
+    } else if (key == "blur_bottom_only" || key == "blur_wallpaper_only" || key == "bottom_only") {
+        file_rules.push_back({ "blur_bottom_only", target, value });
         has_rules_in_file = true;
     } else if (key == "immediate" || key == "tearing") {
         file_rules.push_back({ "immediate", target, value });
