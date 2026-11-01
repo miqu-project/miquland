@@ -615,7 +615,7 @@ void InputManager::begin_interactive(View* view, CursorMode mode, uint32_t edges
     }
 
     view->focus();
-    if (view->get_scene_tree()) {
+    if (view->get_scene_tree() && (view->is_floating() || view->is_dialog())) {
         wlr_scene_node_raise_to_top(&view->get_scene_tree()->node);
     }
 

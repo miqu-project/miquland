@@ -1753,7 +1753,10 @@ void View::focus() {
     }
 
     if (m_scene_tree) {
-        wlr_scene_node_raise_to_top(&m_scene_tree->node);
+        if (is_floating() || is_dialog() || is_fullscreen() ||
+            Config::get().get_layout_mode() == Config::LayoutMode::Monocle) {
+            wlr_scene_node_raise_to_top(&m_scene_tree->node);
+        }
         for (auto* dialog : m_child_dialogs) {
             if (dialog && dialog->is_mapped() && dialog->get_scene_tree()) {
                 wlr_scene_node_raise_to_top(&dialog->get_scene_tree()->node);
