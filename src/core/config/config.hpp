@@ -649,7 +649,7 @@ private:
     std::string m_cursor_theme = "";
     int m_cursor_size = 24;
     double m_default_split_ratio = 0.5;
-    bool m_dwindle_split_focus = false;
+    bool m_dwindle_split_focus = true;
     double m_dwindle_split_width_multiplier = 1.2;
     bool m_dwindle_preserve_split = true;
     bool m_dwindle_smart_split = true;
