@@ -51,14 +51,14 @@ std::string Config::layout_mode_to_string(LayoutMode mode) {
 Config::LayoutMode Config::string_to_layout_mode(const std::string& str) {
     std::string lower = str;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-    if (lower == "dwindle" || lower == "bsp") return LayoutMode::Dwindle;
-    if (lower == "stack" || lower == "master") return LayoutMode::Stack;
-    if (lower == "bstack" || lower == "bottomstack") return LayoutMode::BStack;
-    if (lower == "centeredmaster" || lower == "centermaster") return LayoutMode::CenteredMaster;
-    if (lower == "spiral" || lower == "fibonacci") return LayoutMode::Spiral;
-    if (lower == "columns" || lower == "col") return LayoutMode::Columns;
+    if (lower == "dwindle") return LayoutMode::Dwindle;
+    if (lower == "stack") return LayoutMode::Stack;
+    if (lower == "bstack") return LayoutMode::BStack;
+    if (lower == "centeredmaster") return LayoutMode::CenteredMaster;
+    if (lower == "spiral") return LayoutMode::Spiral;
+    if (lower == "columns") return LayoutMode::Columns;
     if (lower == "grid") return LayoutMode::Grid;
-    if (lower == "monocle" || lower == "full" || lower == "single") return LayoutMode::Monocle;
+    if (lower == "monocle") return LayoutMode::Monocle;
     return LayoutMode::Dwindle;
 }
 
@@ -313,7 +313,7 @@ bool Config::should_float(const std::string& app_id, const std::string& title) c
 bool Config::should_tear(const std::string& app_id, const std::string& title) const {
     if (!m_allow_tearing) return false;
     for (const auto& r : m_window_rules) {
-        if ((r.rule == "immediate" || r.rule == "tearing") &&
+        if (r.rule == "immediate" &&
             (matches_target(r.target, app_id) || matches_target(r.target, title))) {
             return (r.extra.empty() || r.extra == "true" || r.extra == "1" || r.extra == "yes");
         }
@@ -436,7 +436,7 @@ bool Config::get_rule_size(const std::string& app_id, const std::string& title,
 bool Config::get_rule_position(const std::string& app_id, const std::string& title,
                                int& out_x, int& out_y, int monitor_w, int monitor_h) const {
     for (const auto& r : m_window_rules) {
-        if ((r.rule == "move" || r.rule == "position") && (matches_target(r.target, app_id) || matches_target(r.target, title))) {
+        if (r.rule == "move" && (matches_target(r.target, app_id) || matches_target(r.target, title))) {
             std::string s = r.extra;
             for (char& c : s) {
                 if (c == ',' || c == 'x' || c == 'X') c = ' ';
@@ -488,7 +488,7 @@ bool Config::is_window_blur_enabled(const std::string& app_id, const std::string
 bool Config::is_window_blur_bottom_only(const std::string& app_id, const std::string& title, bool default_val) const {
     for (const auto& r : m_window_rules) {
         if (matches_target(r.target, app_id) || matches_target(r.target, title)) {
-            if (r.rule == "blur_bottom_only" || r.rule == "blur_wallpaper_only" || r.rule == "bottom_only") {
+            if (r.rule == "blur_bottom_only") {
                 return (r.extra.empty() || r.extra == "true" || r.extra == "1" || r.extra == "yes");
             }
         }
@@ -498,7 +498,7 @@ bool Config::is_window_blur_bottom_only(const std::string& app_id, const std::st
 
 float Config::get_window_shadow_blur_sigma(const std::string& app_id, const std::string& title, float default_val) const {
     for (const auto& r : m_window_rules) {
-        if (r.rule == "shadow_range" || r.rule == "shadow_blur_sigma" || r.rule == "shadow_sigma") {
+        if (r.rule == "shadow_range") {
             if (matches_target(r.target, app_id) || matches_target(r.target, title)) {
                 try {
                     return std::max(0.0f, std::stof(r.extra));
@@ -539,7 +539,7 @@ std::string Config::get_window_shadow_color(const std::string& app_id, const std
 
 int Config::get_window_shadow_corner_radius(const std::string& app_id, const std::string& title, int default_val) const {
     for (const auto& r : m_window_rules) {
-        if (r.rule == "shadow_radius" || r.rule == "shadow_corner_radius") {
+        if (r.rule == "shadow_radius") {
             if (matches_target(r.target, app_id) || matches_target(r.target, title)) {
                 try {
                     return std::max(0, std::stoi(r.extra));
@@ -894,13 +894,13 @@ bool Config::parse_binding_combo(const std::string& combo, uint32_t& out_modifie
     for (const auto& mod_name : parts) {
         std::string m = mod_name;
         std::transform(m.begin(), m.end(), m.begin(), ::tolower);
-        if (m == "super" || m == "logo" || m == "mod4" || m == "win") {
+        if (m == "super") {
             out_modifiers |= WLR_MODIFIER_LOGO;
         } else if (m == "shift") {
             out_modifiers |= WLR_MODIFIER_SHIFT;
-        } else if (m == "ctrl" || m == "control") {
+        } else if (m == "ctrl") {
             out_modifiers |= WLR_MODIFIER_CTRL;
-        } else if (m == "alt" || m == "mod1") {
+        } else if (m == "alt") {
             out_modifiers |= WLR_MODIFIER_ALT;
         }
     }
@@ -909,24 +909,24 @@ bool Config::parse_binding_combo(const std::string& combo, uint32_t& out_modifie
     if (out_keysym == XKB_KEY_NoSymbol) {
         std::string lower = key_part;
         std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-        if (lower == "return" || lower == "enter") out_keysym = XKB_KEY_Return;
+        if (lower == "return") out_keysym = XKB_KEY_Return;
         else if (lower == "space") out_keysym = XKB_KEY_space;
         else if (lower == "tab") out_keysym = XKB_KEY_Tab;
-        else if (lower == "escape" || lower == "esc") out_keysym = XKB_KEY_Escape;
+        else if (lower == "escape") out_keysym = XKB_KEY_Escape;
         else if (lower == "backspace") out_keysym = XKB_KEY_BackSpace;
         else if (lower == "left") out_keysym = XKB_KEY_Left;
         else if (lower == "right") out_keysym = XKB_KEY_Right;
         else if (lower == "up") out_keysym = XKB_KEY_Up;
         else if (lower == "down") out_keysym = XKB_KEY_Down;
-        else if (lower == "audioplay" || lower == "play") out_keysym = XKB_KEY_XF86AudioPlay;
-        else if (lower == "audionext" || lower == "next") out_keysym = XKB_KEY_XF86AudioNext;
-        else if (lower == "audioprev" || lower == "prev") out_keysym = XKB_KEY_XF86AudioPrev;
-        else if (lower == "audiostop" || lower == "stop") out_keysym = XKB_KEY_XF86AudioStop;
-        else if (lower == "audiomute" || lower == "mute") out_keysym = XKB_KEY_XF86AudioMute;
-        else if (lower == "audiolowervolume" || lower == "voldown" || lower == "volumedown") out_keysym = XKB_KEY_XF86AudioLowerVolume;
-        else if (lower == "audioraisevolume" || lower == "volup" || lower == "volumeup") out_keysym = XKB_KEY_XF86AudioRaiseVolume;
-        else if (lower == "monbrightnessup" || lower == "brightnessup" || lower == "brightup") out_keysym = XKB_KEY_XF86MonBrightnessUp;
-        else if (lower == "monbrightnessdown" || lower == "brightnessdown" || lower == "brightdown") out_keysym = XKB_KEY_XF86MonBrightnessDown;
+        else if (lower == "audioplay") out_keysym = XKB_KEY_XF86AudioPlay;
+        else if (lower == "audionext") out_keysym = XKB_KEY_XF86AudioNext;
+        else if (lower == "audioprev") out_keysym = XKB_KEY_XF86AudioPrev;
+        else if (lower == "audiostop") out_keysym = XKB_KEY_XF86AudioStop;
+        else if (lower == "audiomute") out_keysym = XKB_KEY_XF86AudioMute;
+        else if (lower == "audiolowervolume") out_keysym = XKB_KEY_XF86AudioLowerVolume;
+        else if (lower == "audioraisevolume") out_keysym = XKB_KEY_XF86AudioRaiseVolume;
+        else if (lower == "monbrightnessup") out_keysym = XKB_KEY_XF86MonBrightnessUp;
+        else if (lower == "monbrightnessdown") out_keysym = XKB_KEY_XF86MonBrightnessDown;
         else if (key_part.length() == 1) {
             out_keysym = static_cast<xkb_keysym_t>(key_part[0]);
         }
@@ -1182,9 +1182,9 @@ static void parse_monitor_rule_str(const std::string& value, MonitorRule& rule) 
         std::string mode_str = tokens[1];
         std::string lower_mode = mode_str;
         std::transform(lower_mode.begin(), lower_mode.end(), lower_mode.begin(), ::tolower);
-        if (lower_mode == "disable" || lower_mode == "off") {
+        if (lower_mode == "disable") {
             rule.disabled = true;
-        } else if (lower_mode == "preferred" || lower_mode == "auto" || lower_mode.empty() || lower_mode == "highrr" || lower_mode == "highres") {
+        } else if (lower_mode == "preferred" || lower_mode == "auto" || lower_mode.empty()) {
             rule.width = 0;
             rule.height = 0;
             rule.refresh_rate = 0.0;
@@ -1242,19 +1242,19 @@ static void parse_monitor_rule_str(const std::string& value, MonitorRule& rule) 
         std::string trans_str = tokens[4];
         std::string lower_trans = trans_str;
         std::transform(lower_trans.begin(), lower_trans.end(), lower_trans.begin(), ::tolower);
-        if (lower_trans == "90" || lower_trans == "1") {
+        if (lower_trans == "90") {
             rule.transform = WL_OUTPUT_TRANSFORM_90;
-        } else if (lower_trans == "180" || lower_trans == "2") {
+        } else if (lower_trans == "180") {
             rule.transform = WL_OUTPUT_TRANSFORM_180;
-        } else if (lower_trans == "270" || lower_trans == "3") {
+        } else if (lower_trans == "270") {
             rule.transform = WL_OUTPUT_TRANSFORM_270;
-        } else if (lower_trans == "flipped" || lower_trans == "4") {
+        } else if (lower_trans == "flipped") {
             rule.transform = WL_OUTPUT_TRANSFORM_FLIPPED;
-        } else if (lower_trans == "flipped-90" || lower_trans == "5") {
+        } else if (lower_trans == "flipped-90") {
             rule.transform = WL_OUTPUT_TRANSFORM_FLIPPED_90;
-        } else if (lower_trans == "flipped-180" || lower_trans == "6") {
+        } else if (lower_trans == "flipped-180") {
             rule.transform = WL_OUTPUT_TRANSFORM_FLIPPED_180;
-        } else if (lower_trans == "flipped-270" || lower_trans == "7") {
+        } else if (lower_trans == "flipped-270") {
             rule.transform = WL_OUTPUT_TRANSFORM_FLIPPED_270;
         } else {
             rule.transform = WL_OUTPUT_TRANSFORM_NORMAL;
@@ -1295,8 +1295,7 @@ static bool is_hex_color_at(const std::string& str, size_t pos) {
 }
 
 static void strip_inline_comment(const std::string& key, std::string& value) {
-    if (key == "bind" || key == "gesture" || key == "exec" || key == "exec_once" ||
-        key == "exec-once" || key == "exec_always" || key == "exec-always" || key == "autostart") {
+    if (key == "bind" || key == "gesture" || key == "exec" || key == "exec_once") {
         return;
     }
 
@@ -1325,17 +1324,17 @@ static void strip_inline_comment(const std::string& key, std::string& value) {
 }
 
 void Config::parse_plugins_entry(const std::string& key, const std::string& value) {
-    if (key == "load" || key == "plugin" || key == "path") {
+    if (key == "load") {
         m_plugins.push_back(value);
     }
 }
 
 void Config::parse_autostart_entry(const std::string& key, const std::string& value,
                                    std::vector<std::string>& file_exec_cmds, std::vector<std::string>& file_exec_once_cmds) {
-    if (key == "exec_once" || key == "exec-once" || key == "autostart") {
+    if (key == "exec_once") {
         std::string resolved_cmd = resolve_exec_command(value);
         if (!resolved_cmd.empty()) file_exec_once_cmds.push_back(resolved_cmd);
-    } else if (key == "exec" || key == "exec_always" || key == "exec-always") {
+    } else if (key == "exec") {
         std::string resolved_cmd = resolve_exec_command(value);
         if (!resolved_cmd.empty()) file_exec_cmds.push_back(resolved_cmd);
     }
@@ -1343,7 +1342,7 @@ void Config::parse_autostart_entry(const std::string& key, const std::string& va
 
 void Config::parse_monitors_entry(const std::string& key, const std::string& value,
                                   std::vector<MonitorRule>& file_monitors, bool& has_monitors_in_file) {
-    if (key == "default" || key == "monitor" || key == "output") {
+    if (key == "monitor") {
         MonitorRule rule;
         parse_monitor_rule_str(value, rule);
         has_monitors_in_file = true;
@@ -1361,25 +1360,17 @@ void Config::parse_cursor_entry(const std::string& key, const std::string& value
 void Config::parse_general_entry(const std::string& path_str, const std::string& top_type,
                                  const std::vector<SectionFrame>& stack, const std::string& key, const std::string& value) {
     if (path_str == "general" || top_type == "general") {
-        if (key == "layout" || key == "tiling_layout") {
+        if (key == "layout") {
             m_layout_mode = string_to_layout_mode(value);
-        } else if (key == "default_split_ratio" || key == "split_ratio") {
+        } else if (key == "default_split_ratio") {
             try { m_default_split_ratio = std::clamp(std::stod(value), 0.1, 0.9); } catch (...) {}
-        } else if (key == "dwindle_split_focus" || key == "split_focus" || key == "use_active_for_splits") {
-            m_dwindle_split_focus = (value == "true" || value == "1" || value == "yes");
-        } else if (key == "dwindle_split_width_multiplier" || key == "split_width_multiplier") {
-            try { m_dwindle_split_width_multiplier = std::clamp(std::stod(value), 0.5, 3.0); } catch (...) {}
-        } else if (key == "dwindle_preserve_split" || key == "preserve_split") {
-            m_dwindle_preserve_split = (value == "true" || value == "1" || value == "yes");
-        } else if (key == "dwindle_smart_split") {
-            m_dwindle_smart_split = (value == "true" || value == "1" || value == "yes");
         } else if (key == "smart_gaps") {
             m_smart_gaps = (value == "true" || value == "1" || value == "yes");
-        } else if (key == "allow_tearing" || key == "tearing") {
+        } else if (key == "allow_tearing") {
             m_allow_tearing = (value == "true" || value == "1" || value == "yes");
         } else if (key == "workspace_cycle") {
             m_workspace_cycle = (value == "true" || value == "1" || value == "yes");
-        } else if (key == "vfr" || key == "variable_frame_rate") {
+        } else if (key == "vfr") {
             m_vfr_enabled = (value == "true" || value == "1" || value == "yes");
         } else if (key == "auto_float_fixed_size") {
             m_auto_float_fixed_size = (value == "true" || value == "1" || value == "yes");
@@ -1389,9 +1380,9 @@ void Config::parse_general_entry(const std::string& path_str, const std::string&
             try { m_border_grab_area = std::clamp(std::stoi(value), 1, 30); } catch (...) {}
         }
     } else if (path_str == "general.gaps" || (top_type == "gaps" && is_in_path(stack, "general"))) {
-        if (key == "inner" || key == "space_between_windows") {
+        if (key == "inner") {
             try { m_space_between_windows = std::max(0, std::stoi(value)); } catch (...) {}
-        } else if (key == "outer" || key == "screen_edge_padding") {
+        } else if (key == "outer") {
             try { m_screen_edge_padding = std::max(0, std::stoi(value)); } catch (...) {}
         }
     } else if (path_str == "general.border" || (top_type == "border" && is_in_path(stack, "general"))) {
@@ -1408,18 +1399,15 @@ void Config::parse_general_entry(const std::string& path_str, const std::string&
         } else if (key == "shading_strength") {
             try { m_window_border_shading_strength = std::clamp(std::stof(value), 0.0f, 1.0f); } catch (...) {}
         }
-    } else if (path_str == "general.dwindle" || path_str == "dwindle" || top_type == "dwindle" ||
-               (top_type == "dwindle" && is_in_path(stack, "general"))) {
-        if (key == "split_focus" || key == "use_active_for_splits" || key == "dwindle_split_focus") {
+    } else if (path_str == "general.dwindle" || (top_type == "dwindle" && is_in_path(stack, "general"))) {
+        if (key == "split_focus") {
             m_dwindle_split_focus = (value == "true" || value == "1" || value == "yes");
-        } else if (key == "split_width_multiplier" || key == "dwindle_split_width_multiplier") {
+        } else if (key == "split_width_multiplier") {
             try { m_dwindle_split_width_multiplier = std::clamp(std::stod(value), 0.5, 3.0); } catch (...) {}
-        } else if (key == "preserve_split" || key == "dwindle_preserve_split") {
+        } else if (key == "preserve_split") {
             m_dwindle_preserve_split = (value == "true" || value == "1" || value == "yes");
-        } else if (key == "smart_split" || key == "dwindle_smart_split") {
+        } else if (key == "smart_split") {
             m_dwindle_smart_split = (value == "true" || value == "1" || value == "yes");
-        } else if (key == "default_split_ratio" || key == "split_ratio") {
-            try { m_default_split_ratio = std::clamp(std::stod(value), 0.1, 0.9); } catch (...) {}
         }
     }
 }
@@ -1441,8 +1429,6 @@ void Config::parse_decoration_entry(const std::string& path_str, const std::stri
             try { m_window_opacity_active = std::clamp(std::stof(value), 0.0f, 1.0f); } catch (...) {}
         } else if (key == "inactive_opacity") {
             try { m_window_opacity_inactive = std::clamp(std::stof(value), 0.0f, 1.0f); } catch (...) {}
-        } else if (key == "rounding") {
-            try { m_window_border_radius = std::max(0, std::stoi(value)); } catch (...) {}
         }
     } else if (path_str == "decoration.blur" || (top_type == "blur" && is_in_path(stack, "decoration"))) {
         if (key == "enabled") {
@@ -1463,11 +1449,11 @@ void Config::parse_decoration_entry(const std::string& path_str, const std::stri
     } else if (path_str == "decoration.shadow" || (top_type == "shadow" && is_in_path(stack, "decoration"))) {
         if (key == "enabled") {
             m_shadow_enabled = (value == "true" || value == "1" || value == "yes");
-        } else if (key == "range" || key == "blur_sigma" || key == "radius" || key == "size") {
+        } else if (key == "range") {
             try { m_shadow_blur_sigma = std::max(0.0f, std::stof(value)); } catch (...) {}
         } else if (key == "color") {
             m_shadow_color_active = value;
-        } else if (key == "color_inactive" || key == "inactive_color") {
+        } else if (key == "color_inactive") {
             m_shadow_color_inactive = value;
         } else if (key == "offset") {
             std::istringstream iss(value);
@@ -1522,7 +1508,7 @@ static void parse_window_animation_entry(Config& cfg, const std::string& path_st
         if (key == "enabled") cfg.set_window_move_animation_enabled(value == "true" || value == "1" || value == "yes");
         else if (key == "duration") { try { cfg.set_window_move_duration_ms(std::stoi(value)); } catch (...) {} }
         else if (key == "curve") cfg.set_window_move_curve(value);
-        else if (key == "defer" || key == "delay") { try { cfg.set_window_move_defer_ms(std::stoi(value)); } catch (...) {} }
+        else if (key == "defer") { try { cfg.set_window_move_defer_ms(std::stoi(value)); } catch (...) {} }
         return;
     }
 
@@ -1537,13 +1523,13 @@ static void parse_window_animation_entry(Config& cfg, const std::string& path_st
                 cfg.set_window_animation_open_scale(s);
             } catch (...) {}
         }
-        else if (key == "tiled_style" || key == "style_tiled") cfg.set_window_open_tiled_style(value);
-        else if (key == "floating_style" || key == "style_floating") cfg.set_window_open_floating_style(value);
+        else if (key == "tiled_style") cfg.set_window_open_tiled_style(value);
+        else if (key == "floating_style") cfg.set_window_open_floating_style(value);
         else if (key == "style") {
             cfg.set_window_open_tiled_style(value);
             cfg.set_window_open_floating_style(value);
         }
-        else if (key == "defer_move" || key == "move_defer") { try { cfg.set_window_move_defer_ms(std::stoi(value)); } catch (...) {} }
+        else if (key == "defer_move") { try { cfg.set_window_move_defer_ms(std::stoi(value)); } catch (...) {} }
     } else if (in_close) {
         if (key == "enabled") cfg.set_window_close_animation_enabled(value == "true" || value == "1" || value == "yes");
         else if (key == "duration") { try { cfg.set_window_animation_close_duration_ms(std::stoi(value)); } catch (...) {} }
@@ -1833,7 +1819,7 @@ void Config::parse_input_entry(const std::string& path_str, const std::string& t
     } else if (path_str == "input.touchpad" || (top_type == "touchpad" && is_in_path(stack, "input"))) {
         if (key == "tap_to_click") m_tap_to_click = (value == "true" || value == "1" || value == "yes");
         else if (key == "natural_scroll") m_natural_scroll = (value == "true" || value == "1" || value == "yes");
-        else if (key == "disable_while_typing" || key == "dwt") m_dwt = (value == "true" || value == "1" || value == "yes");
+        else if (key == "disable_while_typing") m_dwt = (value == "true" || value == "1" || value == "yes");
         else if (key == "accel_speed") { try { m_accel_speed = std::clamp(std::stod(value), -1.0, 1.0); } catch (...) {} }
         else if (key == "accel_profile") {
             std::string lower = value;
@@ -1841,7 +1827,7 @@ void Config::parse_input_entry(const std::string& path_str, const std::string& t
             m_accel_profile = (lower == "flat") ? "flat" : "adaptive";
         }
     } else if (path_str == "input.mouse" || (top_type == "mouse" && is_in_path(stack, "input"))) {
-        if (key == "sensitivity" || key == "accel_speed") { try { m_accel_speed = std::clamp(std::stod(value), -1.0, 1.0); } catch (...) {} }
+        if (key == "accel_speed") { try { m_accel_speed = std::clamp(std::stod(value), -1.0, 1.0); } catch (...) {} }
         else if (key == "natural_scroll") m_natural_scroll = (value == "true" || value == "1" || value == "yes");
         else if (key == "accel_profile") {
             std::string lower = value;
@@ -1859,7 +1845,7 @@ void Config::parse_input_entry(const std::string& path_str, const std::string& t
         else if (key == "min_speed_to_force") { try { m_workspace_swipe_min_speed_to_force = std::clamp(std::stod(value), 0.05, 10.0); } catch (...) {} }
         else if (key == "edge_resistance") { try { m_workspace_swipe_edge_resistance = std::clamp(std::stod(value), 0.0, 0.5); } catch (...) {} }
     } else if (path_str == "input.gestures" || top_type == "gestures") {
-        if (key == "bind" || key == "gesture") {
+        if (key == "gesture") {
             size_t comma = value.rfind(',');
             if (comma != std::string::npos) {
                 std::string pattern = trim(value.substr(0, comma));
@@ -1883,16 +1869,15 @@ void Config::parse_xwayland_entry(const std::string& key, const std::string& val
 static Config::LayerAnimStyle parse_layer_anim_style(const std::string& str) {
     std::string lower = str;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-    if (lower == "none" || lower == "noanim") return Config::LayerAnimStyle::None;
+    if (lower == "none") return Config::LayerAnimStyle::None;
     if (lower == "fade") return Config::LayerAnimStyle::Fade;
     if (lower == "unroll") return Config::LayerAnimStyle::Unroll;
-    if (lower == "fold" || lower == "roll") return Config::LayerAnimStyle::Unroll;
-    if (lower == "unfold" || lower == "unroll_center" || lower == "expand_vertical") return Config::LayerAnimStyle::Unfold;
+    if (lower == "unfold") return Config::LayerAnimStyle::Unfold;
     if (lower == "popin") return Config::LayerAnimStyle::Popin;
-    if (lower == "slidetop" || lower == "slide_top" || lower == "slide top" || lower == "top") return Config::LayerAnimStyle::SlideTop;
-    if (lower == "slidebottom" || lower == "slide_bottom" || lower == "slide bottom" || lower == "bottom") return Config::LayerAnimStyle::SlideBottom;
-    if (lower == "slideleft" || lower == "slide_left" || lower == "slide left" || lower == "left") return Config::LayerAnimStyle::SlideLeft;
-    if (lower == "slideright" || lower == "slide_right" || lower == "slide right" || lower == "right") return Config::LayerAnimStyle::SlideRight;
+    if (lower == "slide_top") return Config::LayerAnimStyle::SlideTop;
+    if (lower == "slide_bottom") return Config::LayerAnimStyle::SlideBottom;
+    if (lower == "slide_left") return Config::LayerAnimStyle::SlideLeft;
+    if (lower == "slide_right") return Config::LayerAnimStyle::SlideRight;
     if (lower == "slide") return Config::LayerAnimStyle::Slide;
     return Config::LayerAnimStyle::DefaultAuto;
 }
@@ -1904,10 +1889,10 @@ static std::string layer_anim_style_to_string(Config::LayerAnimStyle style) {
         case Config::LayerAnimStyle::Unroll: return "unroll";
         case Config::LayerAnimStyle::Unfold: return "unfold";
         case Config::LayerAnimStyle::Popin: return "popin";
-        case Config::LayerAnimStyle::SlideTop: return "slide top";
-        case Config::LayerAnimStyle::SlideBottom: return "slide bottom";
-        case Config::LayerAnimStyle::SlideLeft: return "slide left";
-        case Config::LayerAnimStyle::SlideRight: return "slide right";
+        case Config::LayerAnimStyle::SlideTop: return "slide_top";
+        case Config::LayerAnimStyle::SlideBottom: return "slide_bottom";
+        case Config::LayerAnimStyle::SlideLeft: return "slide_left";
+        case Config::LayerAnimStyle::SlideRight: return "slide_right";
         case Config::LayerAnimStyle::Slide: return "slide";
         default: return "default";
     }
@@ -1938,20 +1923,20 @@ void Config::parse_layerrule_entry(const std::string& ns, const std::string& pat
             r.blur_enabled_specified = true;
             add_layer_rule(r);
             if (en) add_blurred_layer(ns);
-        } else if (key == "bottom_only" || key == "wallpaper_only") {
+        } else if (key == "bottom_only") {
             bool b_only = (value == "true" || value == "1" || value == "yes");
             LayerRule r;
             r.ns_pattern = ns;
             r.blur_bottom_only = b_only;
             r.blur_bottom_only_specified = true;
             add_layer_rule(r);
-        } else if (key == "corner_radius" || key == "radius") {
+        } else if (key == "corner_radius") {
             try { LayerRule r; r.ns_pattern = ns; r.blur_corner_radius = std::max(0, std::stoi(value)); add_layer_rule(r); } catch (...) {}
         } else if (key == "alpha") {
             try { LayerRule r; r.ns_pattern = ns; r.blur_alpha = std::clamp(std::stof(value), 0.0f, 1.0f); add_layer_rule(r); } catch (...) {}
         } else if (key == "strength") {
             try { LayerRule r; r.ns_pattern = ns; r.blur_strength = std::clamp(std::stof(value), 0.0f, 1.0f); add_layer_rule(r); } catch (...) {}
-        } else if (key == "ignore_opacity" || key == "ignore_alpha") {
+        } else if (key == "ignore_opacity") {
             bool ign = (value == "true" || value == "1" || value == "yes");
             LayerRule r;
             r.ns_pattern = ns;
@@ -2066,20 +2051,20 @@ void Config::parse_layerrule_entry(const std::string& ns, const std::string& pat
         r.blur_enabled_specified = true;
         add_layer_rule(r);
         if (en) add_blurred_layer(ns);
-    } else if (key == "blur_bottom_only" || key == "blur_wallpaper_only" || key == "wallpaper_only" || key == "bottom_only") {
+    } else if (key == "blur_bottom_only") {
         bool b_only = (value == "true" || value == "1" || value == "yes");
         LayerRule r;
         r.ns_pattern = ns;
         r.blur_bottom_only = b_only;
         r.blur_bottom_only_specified = true;
         add_layer_rule(r);
-    } else if (key == "blur_corner_radius" || key == "blur_radius") {
+    } else if (key == "blur_corner_radius") {
         try { LayerRule r; r.ns_pattern = ns; r.blur_corner_radius = std::max(0, std::stoi(value)); add_layer_rule(r); } catch (...) {}
     } else if (key == "blur_alpha") {
         try { LayerRule r; r.ns_pattern = ns; r.blur_alpha = std::clamp(std::stof(value), 0.0f, 1.0f); add_layer_rule(r); } catch (...) {}
     } else if (key == "blur_strength") {
         try { LayerRule r; r.ns_pattern = ns; r.blur_strength = std::clamp(std::stof(value), 0.0f, 1.0f); add_layer_rule(r); } catch (...) {}
-    } else if (key == "blur_ignore_opacity" || key == "ignore_opacity" || key == "ignore_alpha") {
+    } else if (key == "blur_ignore_opacity") {
         bool ign = (value == "true" || value == "1" || value == "yes");
         LayerRule r;
         r.ns_pattern = ns;
@@ -2092,7 +2077,7 @@ void Config::parse_layerrule_entry(const std::string& ns, const std::string& pat
         r.shadow_enabled = (value == "true" || value == "1" || value == "yes");
         r.shadow_enabled_specified = true;
         add_layer_rule(r);
-    } else if (key == "shadow_range" || key == "shadow_sigma") {
+    } else if (key == "shadow_range") {
         try { LayerRule r; r.ns_pattern = ns; r.shadow_blur_sigma = std::max(0.0f, std::stof(value)); add_layer_rule(r); } catch (...) {}
     } else if (key == "shadow_radius") {
         try { LayerRule r; r.ns_pattern = ns; r.shadow_corner_radius = std::max(0, std::stoi(value)); add_layer_rule(r); } catch (...) {}
@@ -2194,8 +2179,8 @@ void Config::parse_windowrule_entry(const std::string& target, const std::string
 
     if (in_shadow) {
         if (key == "enabled") file_rules.push_back({ "shadow_enabled", target, value });
-        else if (key == "range" || key == "blur_sigma" || key == "sigma") file_rules.push_back({ "shadow_range", target, value });
-        else if (key == "radius" || key == "corner_radius") file_rules.push_back({ "shadow_radius", target, value });
+        else if (key == "range") file_rules.push_back({ "shadow_range", target, value });
+        else if (key == "radius") file_rules.push_back({ "shadow_radius", target, value });
         else if (key == "color") file_rules.push_back({ "shadow_color", target, value });
         else if (key == "offset") file_rules.push_back({ "shadow_offset", target, value });
         has_rules_in_file = true;
@@ -2209,7 +2194,7 @@ void Config::parse_windowrule_entry(const std::string& target, const std::string
         } else if (key == "radius" || key == "passes") {
             file_rules.push_back({ "blur_" + key, target, value });
             has_rules_in_file = true;
-        } else if (key == "bottom_only" || key == "wallpaper_only" || key == "blur_bottom_only") {
+        } else if (key == "bottom_only") {
             file_rules.push_back({ "blur_bottom_only", target, value });
             has_rules_in_file = true;
         }
@@ -2238,7 +2223,7 @@ void Config::parse_windowrule_entry(const std::string& target, const std::string
         if (key == "enabled") {
             file_rules.push_back({ "animation_open_enabled", target, value });
             has_rules_in_file = true;
-        } else if (key == "style" || key == "animation") {
+        } else if (key == "style") {
             file_rules.push_back({ "animation_open_style", target, value });
             has_rules_in_file = true;
         } else if (key == "duration") {
@@ -2258,7 +2243,7 @@ void Config::parse_windowrule_entry(const std::string& target, const std::string
         if (key == "enabled") {
             file_rules.push_back({ "animation_close_enabled", target, value });
             has_rules_in_file = true;
-        } else if (key == "style" || key == "animation") {
+        } else if (key == "style") {
             file_rules.push_back({ "animation_close_style", target, value });
             has_rules_in_file = true;
         } else if (key == "duration") {
@@ -2290,22 +2275,22 @@ void Config::parse_windowrule_entry(const std::string& target, const std::string
     } else if (key == "size") {
         file_rules.push_back({ "size", target, value });
         has_rules_in_file = true;
-    } else if (key == "move" || key == "position") {
+    } else if (key == "move") {
         file_rules.push_back({ "move", target, value });
         has_rules_in_file = true;
     } else if (key == "blur") {
         file_rules.push_back({ "blur", target, value });
         has_rules_in_file = true;
-    } else if (key == "blur_bottom_only" || key == "blur_wallpaper_only" || key == "bottom_only") {
+    } else if (key == "blur_bottom_only") {
         file_rules.push_back({ "blur_bottom_only", target, value });
         has_rules_in_file = true;
-    } else if (key == "immediate" || key == "tearing") {
+    } else if (key == "immediate") {
         file_rules.push_back({ "immediate", target, value });
         has_rules_in_file = true;
     } else if (key == "shadow") {
         file_rules.push_back({ "shadow_enabled", target, value });
         has_rules_in_file = true;
-    } else if (key == "shadow_range" || key == "shadow_sigma") {
+    } else if (key == "shadow_range") {
         file_rules.push_back({ "shadow_range", target, value });
         has_rules_in_file = true;
     } else if (key == "shadow_offset") {
@@ -2314,7 +2299,7 @@ void Config::parse_windowrule_entry(const std::string& target, const std::string
     } else if (key == "shadow_color") {
         file_rules.push_back({ "shadow_color", target, value });
         has_rules_in_file = true;
-    } else if (key == "shadow_radius" || key == "shadow_corner_radius") {
+    } else if (key == "shadow_radius") {
         file_rules.push_back({ "shadow_radius", target, value });
         has_rules_in_file = true;
     } else if (key == "animation" || key == "animation_open" || key == "animation_close") {
@@ -2447,7 +2432,7 @@ void Config::load_file(const std::string& path, std::vector<KeyBinding>& file_bi
         std::string path_str = get_current_section_path(section_stack);
         std::string top_type = section_stack.empty() ? "" : section_stack.back().type;
 
-        if (key == "source" || key == "include") {
+        if (key == "source") {
             std::string resolved = resolve_path(value);
             if (!resolved.empty() && fs::exists(resolved)) {
                 log_info("Sourcing configuration from " + resolved);
@@ -2482,17 +2467,15 @@ void Config::load_file(const std::string& path, std::vector<KeyBinding>& file_bi
                 file_rules.push_back({ sub_rule, target_part, sub_extra });
                 has_rules_in_file = true;
             }
-        } else if (path_str == "plugins" || top_type == "plugins" || key == "plugin") {
+        } else if (path_str == "plugins" || top_type == "plugins") {
             parse_plugins_entry(key, value);
-        } else if (path_str == "autostart" || top_type == "autostart" || key == "autostart" ||
-                   key == "exec" || key == "exec_once" || key == "exec_always") {
+        } else if (path_str == "autostart" || top_type == "autostart" || key == "exec" || key == "exec_once") {
             parse_autostart_entry(key, value, file_exec_cmds, file_exec_once_cmds);
-        } else if (path_str == "monitors" || top_type == "monitors" || key == "monitor" || key == "output") {
+        } else if (path_str == "monitors" || top_type == "monitors" || key == "monitor") {
             parse_monitors_entry(key, value, file_monitors, has_monitors_in_file);
         } else if (path_str == "cursor" || top_type == "cursor") {
             parse_cursor_entry(key, value);
-        } else if (path_str.rfind("general", 0) == 0 || top_type == "general" || top_type == "gaps" || top_type == "border" ||
-                   path_str == "dwindle" || top_type == "dwindle") {
+        } else if (path_str.rfind("general", 0) == 0 || top_type == "general" || top_type == "gaps" || top_type == "border" || top_type == "dwindle") {
             parse_general_entry(path_str, top_type, section_stack, key, value);
         } else if (path_str.rfind("decoration", 0) == 0 || top_type == "decoration" || top_type == "blur" || top_type == "shadow") {
             parse_decoration_entry(path_str, top_type, section_stack, key, value);
@@ -2764,7 +2747,7 @@ void Config::save() {
             file << "    open {\n";
             if (lr.noanim_open) file << "        enabled = false\n";
             if (lr.anim_style_open != LayerAnimStyle::DefaultAuto) {
-                file << "        animation = " << layer_anim_style_to_string(lr.anim_style_open) << "\n";
+                file << "        style = " << layer_anim_style_to_string(lr.anim_style_open) << "\n";
             }
             if (lr.duration_open_ms > 0) file << "        duration = " << lr.duration_open_ms << "\n";
             if (!lr.curve_open.empty()) file << "        curve = " << lr.curve_open << "\n";
@@ -2774,7 +2757,7 @@ void Config::save() {
             file << "    close {\n";
             if (lr.noanim_close) file << "        enabled = false\n";
             if (lr.anim_style_close != LayerAnimStyle::DefaultAuto) {
-                file << "        animation = " << (lr.anim_style_close == LayerAnimStyle::Unroll ? "fold" : layer_anim_style_to_string(lr.anim_style_close)) << "\n";
+                file << "        style = " << layer_anim_style_to_string(lr.anim_style_close) << "\n";
             }
             if (lr.duration_close_ms > 0) file << "        duration = " << lr.duration_close_ms << "\n";
             if (!lr.curve_close.empty()) file << "        curve = " << lr.curve_close << "\n";
@@ -2798,8 +2781,8 @@ void Config::save() {
         else if (r.rule == "opacity") file << "    opacity = " << r.extra << "\n";
         else if (r.rule == "center") file << "    center = true\n";
         else if (r.rule == "size") file << "    size = " << r.extra << "\n";
-        else if (r.rule == "move" || r.rule == "position") file << "    move = " << r.extra << "\n";
-        else if (r.rule == "immediate" || r.rule == "tearing") file << "    immediate = true\n";
+        else if (r.rule == "move") file << "    move = " << r.extra << "\n";
+        else if (r.rule == "immediate") file << "    immediate = true\n";
         else if (r.rule == "shadow" || r.rule == "shadow_enabled") file << "    shadow = " << (r.extra.empty() ? "true" : r.extra) << "\n";
         else if (r.rule == "shadow_range") file << "    shadow_range = " << r.extra << "\n";
         else if (r.rule == "shadow_offset") file << "    shadow_offset = " << r.extra << "\n";

@@ -1318,7 +1318,7 @@ void Server::sync_blur_config() {
     }
     if (blur_on) {
         wlr_scene_set_blur_data(m_scene,
-            Config::get().get_blur_num_passes(),
+            Config::get().get_blur_passes(),
             Config::get().get_blur_radius(),
             Config::get().get_blur_noise(),
             Config::get().get_blur_brightness(),

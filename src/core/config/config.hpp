@@ -181,12 +181,6 @@ public:
         m_window_close_fade_enabled = enabled;
     }
 
-    // Backward compatibility aliases
-    int get_animation_duration_ms() const { return m_workspace_animation_duration_ms; }
-    void set_animation_duration_ms(int ms) { set_workspace_animation_duration_ms(ms); }
-
-    const std::string& get_animation_curve() const { return m_workspace_animation_curve; }
-    void set_animation_curve(const std::string& curve) { set_workspace_animation_curve(curve); }
 
     bool is_xwayland_force_zero_scaling_enabled() const { return m_xwayland_force_zero_scaling; }
     void set_xwayland_force_zero_scaling_enabled(bool enabled) { m_xwayland_force_zero_scaling = enabled; }
@@ -344,7 +338,6 @@ public:
     void set_blur_radius(int r) { m_blur_radius = std::max(1, r); }
 
     int get_blur_passes() const { return m_blur_num_passes; }
-    int get_blur_num_passes() const { return m_blur_num_passes; }
     void set_blur_passes(int p) { m_blur_num_passes = std::max(1, p); }
 
     float get_blur_noise() const { return m_blur_noise; }
