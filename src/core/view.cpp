@@ -64,6 +64,7 @@ View::View(Server* server, struct wlr_xdg_toplevel* toplevel)
     wl_list_init(&m_set_geometry_listener.link);
     wl_list_init(&m_set_class_listener.link);
     wl_list_init(&m_set_override_redirect_listener.link);
+    wl_list_init(&m_set_decorations_listener.link);
 
     // Create view container scene tree under workspaces tree (reparented to specific workspace later)
     struct wlr_scene_tree* root_parent = server->get_workspaces_tree() ? server->get_workspaces_tree() : &server->get_scene()->tree;

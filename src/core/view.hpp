@@ -199,34 +199,34 @@ private:
         struct wlr_scene_tree* workspace_tree = nullptr;
     } m_saved_geometry;
 
-    struct wl_listener m_map_listener;
-    struct wl_listener m_unmap_listener;
-    struct wl_listener m_destroy_listener;
-    struct wl_listener m_commit_listener;
-    struct wl_listener m_request_fullscreen_listener;
-    struct wl_listener m_request_maximize_listener;
-    struct wl_listener m_request_move_listener;
-    struct wl_listener m_request_resize_listener;
-    struct wl_listener m_set_title_listener;
-    struct wl_listener m_set_app_id_listener;
-    struct wl_listener m_set_parent_listener;
-    struct wl_listener m_foreign_request_activate_listener;
-    struct wl_listener m_foreign_request_close_listener;
-    struct wl_listener m_new_popup_listener;
-    struct wl_listener m_new_subsurface_listener;
-    struct wl_listener m_scene_tree_destroy_listener;
+    struct wl_listener m_map_listener{};
+    struct wl_listener m_unmap_listener{};
+    struct wl_listener m_destroy_listener{};
+    struct wl_listener m_commit_listener{};
+    struct wl_listener m_request_fullscreen_listener{};
+    struct wl_listener m_request_maximize_listener{};
+    struct wl_listener m_request_move_listener{};
+    struct wl_listener m_request_resize_listener{};
+    struct wl_listener m_set_title_listener{};
+    struct wl_listener m_set_app_id_listener{};
+    struct wl_listener m_set_parent_listener{};
+    struct wl_listener m_foreign_request_activate_listener{};
+    struct wl_listener m_foreign_request_close_listener{};
+    struct wl_listener m_new_popup_listener{};
+    struct wl_listener m_new_subsurface_listener{};
+    struct wl_listener m_scene_tree_destroy_listener{};
 
     // XWayland specific listeners
-    struct wl_listener m_associate_listener;
-    struct wl_listener m_dissociate_listener;
-    struct wl_listener m_request_configure_listener;
-    struct wl_listener m_request_activate_listener;
-    struct wl_listener m_xwayland_request_move_listener;
-    struct wl_listener m_xwayland_request_resize_listener;
-    struct wl_listener m_set_geometry_listener;
-    struct wl_listener m_set_class_listener;
-    struct wl_listener m_set_override_redirect_listener;
-    struct wl_listener m_set_decorations_listener;
+    struct wl_listener m_associate_listener{};
+    struct wl_listener m_dissociate_listener{};
+    struct wl_listener m_request_configure_listener{};
+    struct wl_listener m_request_activate_listener{};
+    struct wl_listener m_xwayland_request_move_listener{};
+    struct wl_listener m_xwayland_request_resize_listener{};
+    struct wl_listener m_set_geometry_listener{};
+    struct wl_listener m_set_class_listener{};
+    struct wl_listener m_set_override_redirect_listener{};
+    struct wl_listener m_set_decorations_listener{};
     static void handle_xwayland_set_decorations(struct wl_listener* listener, void* data);
     void update_xwayland_decorations();
     bool m_using_csd = false;
@@ -234,9 +234,9 @@ private:
     struct SubsurfaceTracker {
         View* view = nullptr;
         struct wlr_subsurface* subsurface = nullptr;
-        struct wl_listener commit_listener;
-        struct wl_listener destroy_listener;
-        struct wl_listener new_subsurface_listener;
+        struct wl_listener commit_listener{};
+        struct wl_listener destroy_listener{};
+        struct wl_listener new_subsurface_listener{};
 
         SubsurfaceTracker(View* v, struct wlr_subsurface* sub);
         ~SubsurfaceTracker();

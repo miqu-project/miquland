@@ -24,21 +24,25 @@ namespace miquland {
 struct DecorationWrapper {
     Server* server = nullptr;
     struct wlr_xdg_toplevel_decoration_v1* decoration = nullptr;
-    struct wl_listener request_mode;
-    struct wl_listener surface_commit;
-    struct wl_listener surface_destroy;
-    struct wl_listener destroy;
-    struct wl_list link;
+    struct wl_listener request_mode{};
+    struct wl_listener surface_commit{};
+    struct wl_listener surface_destroy{};
+    struct wl_listener destroy{};
+    struct wl_list link{};
 
     static void safe_remove(struct wl_listener* listener) {
-        if (!wl_list_empty(&listener->link)) {
+        if (listener && listener->link.prev != nullptr && listener->link.next != nullptr && !wl_list_empty(&listener->link)) {
             wl_list_remove(&listener->link);
             wl_list_init(&listener->link);
         }
     }
 
     void enforce_server_side() {
-        if (decoration && decoration->toplevel) {
+        if (!decoration || !decoration->toplevel || !decoration->toplevel->base) {
+            return;
+        }
+        decoration->scheduled_mode = WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE;
+        if (decoration->toplevel->base->initialized) {
             wlr_xdg_toplevel_decoration_v1_set_mode(
                 decoration, WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
         }
@@ -51,7 +55,9 @@ struct DecorationWrapper {
 
     static void handle_commit(struct wl_listener* listener, void* data) {
         DecorationWrapper* wrapper = wl_container_of(listener, wrapper, surface_commit);
-        if (wrapper->decoration && wrapper->decoration->toplevel) {
+        if (wrapper->decoration && wrapper->decoration->toplevel &&
+            wrapper->decoration->toplevel->base &&
+            wrapper->decoration->toplevel->base->initialized) {
             if (wrapper->decoration->current.mode != WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE &&
                 wrapper->decoration->scheduled_mode != WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE) {
                 wrapper->enforce_server_side();

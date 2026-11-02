@@ -37,10 +37,10 @@ private:
     LayerSurface* m_layer_surface = nullptr;
     std::function<void(Popup*)> m_on_destroy;
 
-    struct wl_listener m_commit_listener;
-    struct wl_listener m_reposition_listener;
-    struct wl_listener m_destroy_listener;
-    struct wl_listener m_new_popup_listener;
+    struct wl_listener m_commit_listener{};
+    struct wl_listener m_reposition_listener{};
+    struct wl_listener m_destroy_listener{};
+    struct wl_listener m_new_popup_listener{};
 
     std::vector<std::unique_ptr<Popup>> m_child_popups;
 };
