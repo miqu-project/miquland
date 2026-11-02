@@ -1823,48 +1823,12 @@ void View::focus() {
 }
 
 void View::close() {
-    if (m_is_animating_close) return;
-
-    auto do_send_close = [this]() {
-        if (m_type == ViewType::Xdg && m_xdg_toplevel) {
-            wlr_xdg_toplevel_send_close(m_xdg_toplevel);
-        } else if (m_type == ViewType::XWayland && m_xwayland_surface) {
-            if (!is_override_redirect()) {
-                wlr_xwayland_surface_close(m_xwayland_surface);
-            }
+    if (m_type == ViewType::Xdg && m_xdg_toplevel) {
+        wlr_xdg_toplevel_send_close(m_xdg_toplevel);
+    } else if (m_type == ViewType::XWayland && m_xwayland_surface) {
+        if (!is_override_redirect()) {
+            wlr_xwayland_surface_close(m_xwayland_surface);
         }
-    };
-
-    if (!Config::get().is_window_animations_enabled() || !m_mapped || m_is_fullscreen || is_override_redirect()) {
-        do_send_close();
-        return;
-    }
-
-    // Windows on inactive/hidden workspaces must not visually animate onto the active screen
-    if (m_workspace && !m_workspace->is_visible()) {
-        do_send_close();
-        return;
-    }
-
-    m_is_animating_close = true;
-    if (m_server && m_server->get_animation_manager()) {
-        // Ensure visual elements (border, blur, shadow) are active and ready for close animation
-        update_border();
-        update_blur();
-        update_shadow();
-
-        // Reparent closing view to workspaces root tree so it renders above all workspaces,
-        // below top/overlay layer surfaces, and is immune to workspace destruction/pruning
-        if (m_scene_tree && m_server->get_workspaces_tree()) {
-            wlr_scene_node_reparent(&m_scene_tree->node, m_server->get_workspaces_tree());
-            wlr_scene_node_raise_to_top(&m_scene_tree->node);
-        }
-        if (m_workspace && !is_floating() && !is_dialog()) {
-            m_server->get_workspace_manager()->remove_view(this);
-        }
-        m_server->get_animation_manager()->schedule_window_close(this, do_send_close);
-    } else {
-        do_send_close();
     }
 }
 
