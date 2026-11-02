@@ -178,6 +178,7 @@ private:
     int m_inotify_parent_wd = -1;
     std::string m_config_dir_target_name;
     std::vector<int> m_inotify_sourced_wds;
+    std::vector<std::string> m_watched_sourced_files;
     struct wl_event_source* m_config_event_source = nullptr;
     struct wl_event_source* m_config_reload_timer = nullptr;
     bool m_shutting_down = false;

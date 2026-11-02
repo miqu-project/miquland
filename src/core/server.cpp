@@ -366,14 +366,28 @@ void Server::update_config_watches() {
 void Server::update_sourced_file_watches() {
     if (m_inotify_fd < 0) return;
 
+    std::string main_conf = Config::get_config_file_path();
+    std::vector<std::string> new_sourced;
+    for (const auto& file : Config::get().get_loaded_files()) {
+        if (!file.empty() && file != main_conf) {
+            new_sourced.push_back(file);
+        }
+    }
+
+    // Only churn kernel inotify watches if the list of loaded sourced files actually changed
+    if (new_sourced == m_watched_sourced_files) {
+        return;
+    }
+
     for (int wd : m_inotify_sourced_wds) {
         if (wd >= 0) {
             inotify_rm_watch(m_inotify_fd, wd);
         }
     }
     m_inotify_sourced_wds.clear();
+    m_watched_sourced_files = std::move(new_sourced);
 
-    for (const auto& file : Config::get().get_loaded_files()) {
+    for (const auto& file : m_watched_sourced_files) {
         int wd = inotify_add_watch(m_inotify_fd, file.c_str(), IN_MODIFY | IN_CLOSE_WRITE);
         if (wd >= 0) {
             m_inotify_sourced_wds.push_back(wd);
@@ -391,6 +405,35 @@ int Server::handle_config_inotify(int fd, uint32_t mask, void* data) {
         const struct inotify_event* event;
         for (char* ptr = buf; ptr < buf + len; ptr += sizeof(struct inotify_event) + event->len) {
             event = reinterpret_cast<const struct inotify_event*>(ptr);
+
+            // IN_IGNORED is an acknowledgment from the kernel that a watch was removed.
+            // Invalidate dead descriptors, but NEVER treat watch removal as a config change!
+            if (event->mask & IN_IGNORED) {
+                if (server->m_inotify_file_wd >= 0 && event->wd == server->m_inotify_file_wd) {
+                    server->m_inotify_file_wd = -1;
+                }
+                if (server->m_inotify_wd >= 0 && event->wd == server->m_inotify_wd) {
+                    server->m_inotify_wd = -1;
+                }
+                if (server->m_inotify_parent_wd >= 0 && event->wd == server->m_inotify_parent_wd) {
+                    server->m_inotify_parent_wd = -1;
+                }
+                continue;
+            }
+
+            // Only respond to genuine write/modification/creation/move events
+            if (!(event->mask & (IN_MODIFY | IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE))) {
+                if (event->mask & (IN_DELETE_SELF | IN_MOVE_SELF)) {
+                    if (server->m_inotify_file_wd >= 0 && event->wd == server->m_inotify_file_wd) {
+                        server->m_inotify_file_wd = -1;
+                    }
+                    if (server->m_inotify_wd >= 0 && event->wd == server->m_inotify_wd) {
+                        server->m_inotify_wd = -1;
+                    }
+                }
+                continue;
+            }
+
             bool is_sourced = false;
             for (int swd : server->m_inotify_sourced_wds) {
                 if (event->wd == swd) {
@@ -407,25 +450,13 @@ int Server::handle_config_inotify(int fd, uint32_t mask, void* data) {
                 }
             } else if (server->m_inotify_file_wd >= 0 && event->wd == server->m_inotify_file_wd) {
                 should_reload = true;
-                if (event->mask & (IN_IGNORED | IN_DELETE_SELF | IN_MOVE_SELF)) {
-                    server->m_inotify_file_wd = -1;
-                }
             } else if (server->m_inotify_wd >= 0 && event->wd == server->m_inotify_wd) {
-                if (event->mask & (IN_IGNORED | IN_DELETE_SELF | IN_MOVE_SELF)) {
-                    server->m_inotify_wd = -1;
-                }
                 if (event->len > 0) {
                     std::string filename(event->name);
                     if ((filename == "miquland.conf" || filename.ends_with(".conf")) &&
                         !filename.starts_with(".") && !filename.ends_with("~")) {
                         should_reload = true;
                     }
-                }
-            } else if (event->len > 0) {
-                std::string filename(event->name);
-                if ((filename == "miquland.conf" || filename.ends_with(".conf")) &&
-                    !filename.starts_with(".") && !filename.ends_with("~")) {
-                    should_reload = true;
                 }
             }
         }
@@ -453,6 +484,9 @@ int Server::handle_config_reload_timer(void* data) {
 }
 
 void Server::reload_config() {
+    if (m_config_reload_timer) {
+        wl_event_source_timer_update(m_config_reload_timer, 0);
+    }
     update_config_watches();
     Config::get().load();
     update_sourced_file_watches();
