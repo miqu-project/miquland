@@ -41,7 +41,6 @@ struct DecorationWrapper {
         if (!decoration || !decoration->toplevel || !decoration->toplevel->base) {
             return;
         }
-        decoration->scheduled_mode = WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE;
         if (decoration->toplevel->base->initialized) {
             wlr_xdg_toplevel_decoration_v1_set_mode(
                 decoration, WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
@@ -58,10 +57,7 @@ struct DecorationWrapper {
         if (wrapper->decoration && wrapper->decoration->toplevel &&
             wrapper->decoration->toplevel->base &&
             wrapper->decoration->toplevel->base->initialized) {
-            if (wrapper->decoration->current.mode != WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE &&
-                wrapper->decoration->scheduled_mode != WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE) {
-                wrapper->enforce_server_side();
-            }
+            wrapper->enforce_server_side();
             safe_remove(&wrapper->surface_commit);
         }
     }
