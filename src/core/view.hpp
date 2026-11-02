@@ -91,6 +91,7 @@ public:
         }
         return m_is_override_redirect;
     }
+    bool using_csd() const { return m_using_csd; }
 
     int get_x() const { return m_x; }
     int get_y() const { return m_y; }
@@ -225,6 +226,10 @@ private:
     struct wl_listener m_set_geometry_listener;
     struct wl_listener m_set_class_listener;
     struct wl_listener m_set_override_redirect_listener;
+    struct wl_listener m_set_decorations_listener;
+    static void handle_xwayland_set_decorations(struct wl_listener* listener, void* data);
+    void update_xwayland_decorations();
+    bool m_using_csd = false;
 
     struct SubsurfaceTracker {
         View* view = nullptr;

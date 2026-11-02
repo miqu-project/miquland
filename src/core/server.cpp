@@ -21,6 +21,65 @@ extern "C" {
 
 namespace miquland {
 
+struct DecorationWrapper {
+    Server* server = nullptr;
+    struct wlr_xdg_toplevel_decoration_v1* decoration = nullptr;
+    struct wl_listener request_mode;
+    struct wl_listener surface_commit;
+    struct wl_listener surface_destroy;
+    struct wl_listener destroy;
+    struct wl_list link;
+
+    static void safe_remove(struct wl_listener* listener) {
+        if (!wl_list_empty(&listener->link)) {
+            wl_list_remove(&listener->link);
+            wl_list_init(&listener->link);
+        }
+    }
+
+    void enforce_server_side() {
+        if (decoration && decoration->toplevel) {
+            wlr_xdg_toplevel_decoration_v1_set_mode(
+                decoration, WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+        }
+    }
+
+    static void handle_request_mode(struct wl_listener* listener, void* data) {
+        DecorationWrapper* wrapper = wl_container_of(listener, wrapper, request_mode);
+        wrapper->enforce_server_side();
+    }
+
+    static void handle_commit(struct wl_listener* listener, void* data) {
+        DecorationWrapper* wrapper = wl_container_of(listener, wrapper, surface_commit);
+        if (wrapper->decoration && wrapper->decoration->toplevel) {
+            if (wrapper->decoration->current.mode != WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE &&
+                wrapper->decoration->scheduled_mode != WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE) {
+                wrapper->enforce_server_side();
+            }
+            safe_remove(&wrapper->surface_commit);
+        }
+    }
+
+    static void handle_surface_destroy(struct wl_listener* listener, void* data) {
+        DecorationWrapper* wrapper = wl_container_of(listener, wrapper, surface_destroy);
+        safe_remove(&wrapper->surface_commit);
+        safe_remove(&wrapper->surface_destroy);
+    }
+
+    static void handle_destroy(struct wl_listener* listener, void* data) {
+        DecorationWrapper* wrapper = wl_container_of(listener, wrapper, destroy);
+        safe_remove(&wrapper->request_mode);
+        safe_remove(&wrapper->surface_commit);
+        safe_remove(&wrapper->surface_destroy);
+        safe_remove(&wrapper->destroy);
+        if (!wl_list_empty(&wrapper->link)) {
+            wl_list_remove(&wrapper->link);
+            wl_list_init(&wrapper->link);
+        }
+        delete wrapper;
+    }
+};
+
 Server::Server() {
     wl_list_init(&m_new_xdg_toplevel_listener.link);
     wl_list_init(&m_new_layer_shell_surface_listener.link);
@@ -32,6 +91,7 @@ Server::Server() {
     wl_list_init(&m_output_power_set_mode_listener.link);
     wl_list_init(&m_new_idle_inhibitor_listener.link);
     wl_list_init(&m_new_xdg_decoration_listener.link);
+    wl_list_init(&m_xdg_decorations);
     wl_list_init(&m_xdg_activation_request_activate_listener.link);
     wl_list_init(&m_cursor_shape_request_set_shape_listener.link);
 }
@@ -90,6 +150,17 @@ Server::~Server() {
     if (!wl_list_empty(&m_xdg_activation_request_activate_listener.link)) wl_list_remove(&m_xdg_activation_request_activate_listener.link);
     if (!wl_list_empty(&m_cursor_shape_request_set_shape_listener.link)) wl_list_remove(&m_cursor_shape_request_set_shape_listener.link);
     if (!wl_list_empty(&m_foreign_toplevel_capture_request_listener.link)) wl_list_remove(&m_foreign_toplevel_capture_request_listener.link);
+
+    DecorationWrapper* dec_wrapper;
+    DecorationWrapper* dec_tmp;
+    wl_list_for_each_safe(dec_wrapper, dec_tmp, &m_xdg_decorations, link) {
+        DecorationWrapper::safe_remove(&dec_wrapper->request_mode);
+        DecorationWrapper::safe_remove(&dec_wrapper->surface_commit);
+        DecorationWrapper::safe_remove(&dec_wrapper->surface_destroy);
+        DecorationWrapper::safe_remove(&dec_wrapper->destroy);
+        wl_list_remove(&dec_wrapper->link);
+        delete dec_wrapper;
+    }
 
     if (m_wlr_allocator) wlr_allocator_destroy(m_wlr_allocator);
     if (m_wlr_renderer) wlr_renderer_destroy(m_wlr_renderer);
@@ -243,6 +314,14 @@ bool Server::init() {
     if (m_xdg_decoration_manager) {
         m_new_xdg_decoration_listener.notify = handle_new_xdg_decoration;
         wl_signal_add(&m_xdg_decoration_manager->events.new_toplevel_decoration, &m_new_xdg_decoration_listener);
+    }
+
+    m_server_decoration_manager = wlr_server_decoration_manager_create(m_wl_display);
+    if (m_server_decoration_manager) {
+        wlr_server_decoration_manager_set_default_mode(
+            m_server_decoration_manager,
+            WLR_SERVER_DECORATION_MANAGER_MODE_SERVER
+        );
     }
 
     m_xdg_activation = wlr_xdg_activation_v1_create(m_wl_display);
@@ -1224,60 +1303,20 @@ void Server::handle_new_idle_inhibitor(struct wl_listener* listener, void* data)
     wl_signal_add(&inhibitor->events.destroy, &wrapper->destroy);
 }
 
-struct DecorationWrapper {
-    struct wlr_xdg_toplevel_decoration_v1* decoration = nullptr;
-    struct wl_listener request_mode;
-    struct wl_listener surface_commit;
-    struct wl_listener surface_destroy;
-    struct wl_listener destroy;
-
-    static void handle_request_mode(struct wl_listener* listener, void* data) {
-        DecorationWrapper* wrapper = wl_container_of(listener, wrapper, request_mode);
-        if (wrapper->decoration && wrapper->decoration->toplevel &&
-            wrapper->decoration->toplevel->base &&
-            wrapper->decoration->toplevel->base->initialized) {
-            wlr_xdg_toplevel_decoration_v1_set_mode(wrapper->decoration, WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
-        }
-    }
-
-    static void handle_commit(struct wl_listener* listener, void* data) {
-        DecorationWrapper* wrapper = wl_container_of(listener, wrapper, surface_commit);
-        if (wrapper->decoration && wrapper->decoration->toplevel &&
-            wrapper->decoration->toplevel->base &&
-            wrapper->decoration->toplevel->base->initialized) {
-            if (wrapper->decoration->current.mode != WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE &&
-                wrapper->decoration->scheduled_mode != WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE) {
-                wlr_xdg_toplevel_decoration_v1_set_mode(wrapper->decoration, WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
-            }
-            wl_list_remove(&wrapper->surface_commit.link);
-            wl_list_init(&wrapper->surface_commit.link);
-        }
-    }
-
-    static void handle_surface_destroy(struct wl_listener* listener, void* data) {
-        DecorationWrapper* wrapper = wl_container_of(listener, wrapper, surface_destroy);
-        wl_list_remove(&wrapper->surface_commit.link);
-        wl_list_init(&wrapper->surface_commit.link);
-        wl_list_remove(&wrapper->surface_destroy.link);
-        wl_list_init(&wrapper->surface_destroy.link);
-    }
-
-    static void handle_destroy(struct wl_listener* listener, void* data) {
-        DecorationWrapper* wrapper = wl_container_of(listener, wrapper, destroy);
-        wl_list_remove(&wrapper->request_mode.link);
-        wl_list_remove(&wrapper->surface_commit.link);
-        wl_list_remove(&wrapper->surface_destroy.link);
-        wl_list_remove(&wrapper->destroy.link);
-        delete wrapper;
-    }
-};
-
 void Server::handle_new_xdg_decoration(struct wl_listener* listener, void* data) {
     Server* server = wl_container_of(listener, server, m_new_xdg_decoration_listener);
     auto* decoration = static_cast<struct wlr_xdg_toplevel_decoration_v1*>(data);
 
     auto* wrapper = new DecorationWrapper();
+    wrapper->server = server;
     wrapper->decoration = decoration;
+    wl_list_init(&wrapper->link);
+    wl_list_init(&wrapper->request_mode.link);
+    wl_list_init(&wrapper->surface_commit.link);
+    wl_list_init(&wrapper->surface_destroy.link);
+    wl_list_init(&wrapper->destroy.link);
+
+    wl_list_insert(&server->m_xdg_decorations, &wrapper->link);
 
     wrapper->request_mode.notify = DecorationWrapper::handle_request_mode;
     wl_signal_add(&decoration->events.request_mode, &wrapper->request_mode);
@@ -1287,17 +1326,12 @@ void Server::handle_new_xdg_decoration(struct wl_listener* listener, void* data)
     if (decoration->toplevel && decoration->toplevel->base && decoration->toplevel->base->surface) {
         wl_signal_add(&decoration->toplevel->base->surface->events.commit, &wrapper->surface_commit);
         wl_signal_add(&decoration->toplevel->base->surface->events.destroy, &wrapper->surface_destroy);
-    } else {
-        wl_list_init(&wrapper->surface_commit.link);
-        wl_list_init(&wrapper->surface_destroy.link);
     }
 
     wrapper->destroy.notify = DecorationWrapper::handle_destroy;
     wl_signal_add(&decoration->events.destroy, &wrapper->destroy);
 
-    if (decoration->toplevel && decoration->toplevel->base && decoration->toplevel->base->initialized) {
-        wlr_xdg_toplevel_decoration_v1_set_mode(decoration, WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
-    }
+    wrapper->enforce_server_side();
 }
 
 void Server::handle_xdg_activation_request_activate(struct wl_listener* listener, void* data) {

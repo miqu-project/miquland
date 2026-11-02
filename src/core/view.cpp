@@ -178,6 +178,7 @@ View::View(Server* server, struct wlr_xwayland_surface* xsurface)
     wl_list_init(&m_set_geometry_listener.link);
     wl_list_init(&m_set_class_listener.link);
     wl_list_init(&m_set_override_redirect_listener.link);
+    wl_list_init(&m_set_decorations_listener.link);
 
     // Create view container scene tree: override-redirect windows (popups/menus) belong in popup_tree,
     // while regular application windows belong under workspaces_tree
@@ -265,6 +266,10 @@ View::View(Server* server, struct wlr_xwayland_surface* xsurface)
     m_set_override_redirect_listener.notify = handle_xwayland_set_override_redirect;
     wl_signal_add(&xsurface->events.set_override_redirect, &m_set_override_redirect_listener);
 
+    m_set_decorations_listener.notify = handle_xwayland_set_decorations;
+    wl_signal_add(&xsurface->events.set_decorations, &m_set_decorations_listener);
+    update_xwayland_decorations();
+
     // If surface was already associated at view creation time
     if (xsurface->surface) {
         handle_xwayland_associate(&m_associate_listener, nullptr);
@@ -314,6 +319,7 @@ View::~View() {
     safe_remove_listener(m_set_class_listener);
     safe_remove_listener(m_set_geometry_listener);
     safe_remove_listener(m_set_override_redirect_listener);
+    safe_remove_listener(m_set_decorations_listener);
 
     safe_remove_listener(m_foreign_request_activate_listener);
     safe_remove_listener(m_foreign_request_close_listener);
@@ -530,7 +536,7 @@ bool View::tearing_allowed() const {
 }
 
 void View::get_surface_offset(int& out_x, int& out_y) const {
-    int bw = (m_is_fullscreen || m_is_override_redirect) ? 0 : Config::get().get_window_border_width();
+    int bw = (m_is_fullscreen || m_is_override_redirect || m_using_csd) ? 0 : Config::get().get_window_border_width();
     out_x = bw;
     out_y = bw;
 }
@@ -560,7 +566,7 @@ void View::set_geometry(int x, int y, int width, int height) {
         wlr_scene_node_set_position(&m_scene_tree->node, x, y);
     }
 
-    int bw = Config::get().get_window_border_width();
+    int bw = (m_is_fullscreen || m_is_override_redirect || m_using_csd) ? 0 : Config::get().get_window_border_width();
     int client_w = std::max(1, width - 2 * bw);
     int client_h = std::max(1, height - 2 * bw);
 
@@ -916,7 +922,7 @@ void View::update_shadow() {
 }
 
 void View::update_border() {
-    if (m_is_override_redirect || !m_mapped || m_width <= 0 || m_height <= 0) {
+    if (m_is_override_redirect || m_using_csd || !m_mapped || m_width <= 0 || m_height <= 0) {
         if (m_border_scene_buffer) {
             wlr_scene_node_set_enabled(&m_border_scene_buffer->node, false);
         }
@@ -991,7 +997,7 @@ void View::update_opacity() {
 void View::update_corner_radius() {
     if (!m_mapped || !m_surface_scene_tree) return;
 
-    int bw = Config::get().get_window_border_width();
+    int bw = (m_is_fullscreen || m_is_override_redirect || m_using_csd) ? 0 : Config::get().get_window_border_width();
     int client_w = std::max(1, m_width - 2 * bw);
     int client_h = std::max(1, m_height - 2 * bw);
 
@@ -1023,7 +1029,7 @@ void View::update_corner_radius() {
     }
 
     int radius = 0;
-    if (!m_is_fullscreen && !m_is_override_redirect) {
+    if (!m_is_fullscreen && !m_is_override_redirect && !m_using_csd) {
         int r = Config::get().get_window_border_radius();
         radius = (bw > 0) ? std::max(0, r - bw) : std::max(0, r);
     }
@@ -1043,7 +1049,7 @@ void View::apply_animation_transform(double scale, float opacity) {
         return;
     }
 
-    int bw = Config::get().get_window_border_width();
+    int bw = (m_is_fullscreen || m_is_override_redirect || m_using_csd) ? 0 : Config::get().get_window_border_width();
     int base_w = (m_current_anim_width > 0) ? m_current_anim_width : m_width;
     int base_h = (m_current_anim_height > 0) ? m_current_anim_height : m_height;
     int base_x = (m_current_anim_width > 0) ? m_current_anim_x : m_x;
@@ -1071,7 +1077,7 @@ void View::apply_animation_transform(double scale, float opacity) {
             get_surface_offset(ox, oy);
             wlr_scene_node_set_position(&m_surface_scene_tree->node, ox, oy);
 
-            int r = (!m_is_fullscreen && !m_is_override_redirect) ? Config::get().get_window_border_radius() : 0;
+            int r = (!m_is_fullscreen && !m_is_override_redirect && !m_using_csd) ? Config::get().get_window_border_radius() : 0;
             int base_r = (bw > 0) ? std::max(0, r - bw) : std::max(0, r);
 
             struct SteadyBufferData {
@@ -1147,7 +1153,7 @@ void View::apply_animation_transform(double scale, float opacity) {
         int surf_y = static_cast<int>(std::round(static_cast<double>(oy) * scale));
         wlr_scene_node_set_position(&m_surface_scene_tree->node, surf_x, surf_y);
 
-        int r = (!m_is_fullscreen && !m_is_override_redirect) ? Config::get().get_window_border_radius() : 0;
+        int r = (!m_is_fullscreen && !m_is_override_redirect && !m_using_csd) ? Config::get().get_window_border_radius() : 0;
         int base_r = (bw > 0) ? std::max(0, r - bw) : std::max(0, r);
         int scaled_r = static_cast<int>(std::round(static_cast<double>(base_r) * scale));
 
@@ -1283,7 +1289,7 @@ void View::notify_geometry_target(int x, int y, int width, int height) {
     m_target_width = width;
     m_target_height = height;
 
-    int bw = Config::get().get_window_border_width();
+    int bw = (m_is_fullscreen || m_is_override_redirect || m_using_csd) ? 0 : Config::get().get_window_border_width();
     int client_w = std::max(1, width - 2 * bw);
     int client_h = std::max(1, height - 2 * bw);
 
@@ -1407,7 +1413,7 @@ void View::finish_geometry_animation(int target_x, int target_y, int target_w, i
         wlr_scene_node_set_position(&m_scene_tree->node, target_x, target_y);
     }
 
-    int bw = Config::get().get_window_border_width();
+    int bw = (m_is_fullscreen || m_is_override_redirect || m_using_csd) ? 0 : Config::get().get_window_border_width();
     int client_w = std::max(1, target_w - 2 * bw);
     int client_h = std::max(1, target_h - 2 * bw);
 
@@ -2468,11 +2474,11 @@ void View::handle_xwayland_request_configure(struct wl_listener* listener, void*
     auto* ev = static_cast<struct wlr_xwayland_surface_configure_event*>(data);
 
     if (view->m_mapped && !view->is_override_redirect()) {
-        int bw = Config::get().get_window_border_width();
-        int client_w = std::max(1, view->m_width - 2 * bw);
-        int client_h = std::max(1, view->m_height - 2 * bw);
-        int client_x = view->m_x + bw;
-        int client_y = view->m_y + bw;
+        int effective_bw = (view->is_fullscreen() || view->is_override_redirect() || view->using_csd()) ? 0 : Config::get().get_window_border_width();
+        int client_w = std::max(1, view->m_width - 2 * effective_bw);
+        int client_h = std::max(1, view->m_height - 2 * effective_bw);
+        int client_x = view->m_x + effective_bw;
+        int client_y = view->m_y + effective_bw;
         if (Config::get().is_xwayland_force_zero_scaling_enabled()) {
             float scale = view->get_output_scale();
             if (scale > 1.001f) {
@@ -2605,6 +2611,29 @@ void View::handle_xwayland_set_override_redirect(struct wl_listener* listener, v
             if (view->m_border_scene_buffer) {
                 wlr_scene_node_set_enabled(&view->m_border_scene_buffer->node, true);
             }
+        }
+    }
+}
+
+void View::handle_xwayland_set_decorations(struct wl_listener* listener, void* data) {
+    View* view = wl_container_of(listener, view, m_set_decorations_listener);
+    view->update_xwayland_decorations();
+}
+
+void View::update_xwayland_decorations() {
+    if (m_type != ViewType::XWayland || !m_xwayland_surface) return;
+
+    bool csd = (m_xwayland_surface->decorations != WLR_XWAYLAND_SURFACE_DECORATIONS_ALL);
+    if (m_using_csd != csd) {
+        m_using_csd = csd;
+        update_border();
+        int ox = 0, oy = 0;
+        get_surface_offset(ox, oy);
+        if (m_surface_scene_tree) {
+            wlr_scene_node_set_position(&m_surface_scene_tree->node, ox, oy);
+        }
+        if (m_mapped && m_workspace && m_server && m_server->get_workspace_manager()) {
+            m_server->get_workspace_manager()->recalculate_layout();
         }
     }
 }

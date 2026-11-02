@@ -155,6 +155,8 @@ private:
     struct wlr_idle_notifier_v1* m_idle_notifier = nullptr;
     struct wlr_idle_inhibit_manager_v1* m_idle_inhibit_manager = nullptr;
     struct wlr_xdg_decoration_manager_v1* m_xdg_decoration_manager = nullptr;
+    struct wlr_server_decoration_manager* m_server_decoration_manager = nullptr;
+    struct wl_list m_xdg_decorations;
     struct wlr_xdg_activation_v1* m_xdg_activation = nullptr;
     struct wlr_cursor_shape_manager_v1* m_cursor_shape_manager = nullptr;
     struct wlr_relative_pointer_manager_v1* m_relative_pointer_manager = nullptr;
