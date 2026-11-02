@@ -283,6 +283,9 @@ public:
     float get_window_border_shading_strength() const { return m_window_border_shading_strength; }
     void set_window_border_shading_strength(float strength) { m_window_border_shading_strength = std::clamp(strength, 0.0f, 1.0f); }
 
+    bool is_prefer_server_decorations_enabled() const { return m_prefer_server_decorations; }
+    void set_prefer_server_decorations_enabled(bool enabled) { m_prefer_server_decorations = enabled; }
+
     // Drop shadows (SceneFX)
     bool is_shadow_enabled() const { return m_shadow_enabled; }
     void set_shadow_enabled(bool enabled) { m_shadow_enabled = enabled; }
@@ -535,6 +538,8 @@ public:
     int get_window_shadow_corner_radius(const std::string& app_id, const std::string& title, int default_val) const;
     bool is_window_blur_enabled(const std::string& app_id, const std::string& title, bool default_val) const;
     bool is_window_blur_bottom_only(const std::string& app_id, const std::string& title, bool default_val) const;
+    bool should_use_csd(const std::string& app_id, const std::string& title) const;
+    bool should_use_ssd(const std::string& app_id, const std::string& title) const;
 
     const std::vector<MonitorRule>& get_monitor_rules() const { return m_monitor_rules; }
     void add_monitor_rule(const MonitorRule& rule) { m_monitor_rules.push_back(rule); }
@@ -703,6 +708,7 @@ private:
     BorderPaint m_border_paint_inactive;
     bool m_window_border_shading = false;
     float m_window_border_shading_strength = 0.35f;
+    bool m_prefer_server_decorations = true;
 
     bool m_shadow_enabled = false;
     float m_shadow_blur_sigma = 16.0f;

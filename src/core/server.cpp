@@ -37,19 +37,62 @@ struct DecorationWrapper {
         }
     }
 
-    void enforce_server_side() {
+    View* get_view() const {
+        if (!decoration || !decoration->toplevel || !decoration->toplevel->base) return nullptr;
+        auto* tree = static_cast<struct wlr_scene_tree*>(decoration->toplevel->base->data);
+        if (!tree) return nullptr;
+        return static_cast<View*>(tree->node.data);
+    }
+
+    enum wlr_xdg_toplevel_decoration_v1_mode get_target_mode() const {
+        if (!decoration || !decoration->toplevel) {
+            return WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE;
+        }
+
+        std::string app_id = decoration->toplevel->app_id ? decoration->toplevel->app_id : "";
+        std::string title = decoration->toplevel->title ? decoration->toplevel->title : "";
+
+        View* view = get_view();
+        if (view) {
+            if (!view->get_app_id().empty()) app_id = view->get_app_id();
+            if (!view->get_title().empty()) title = view->get_title();
+        }
+
+        if (Config::get().should_use_ssd(app_id, title)) {
+            return WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE;
+        }
+        if (Config::get().should_use_csd(app_id, title)) {
+            return WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE;
+        }
+
+        if (decoration->requested_mode == WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE) {
+            return Config::get().is_prefer_server_decorations_enabled()
+                ? WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+                : WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE;
+        }
+
+        return Config::get().is_prefer_server_decorations_enabled()
+            ? WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+            : WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE;
+    }
+
+    void enforce_mode() {
         if (!decoration || !decoration->toplevel || !decoration->toplevel->base) {
             return;
         }
         if (decoration->toplevel->base->initialized) {
-            wlr_xdg_toplevel_decoration_v1_set_mode(
-                decoration, WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+            enum wlr_xdg_toplevel_decoration_v1_mode mode = get_target_mode();
+            wlr_xdg_toplevel_decoration_v1_set_mode(decoration, mode);
+            View* view = get_view();
+            if (view) {
+                view->set_using_csd(mode == WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE);
+            }
         }
     }
 
     static void handle_request_mode(struct wl_listener* listener, void* data) {
         DecorationWrapper* wrapper = wl_container_of(listener, wrapper, request_mode);
-        wrapper->enforce_server_side();
+        wrapper->enforce_mode();
     }
 
     static void handle_commit(struct wl_listener* listener, void* data) {
@@ -57,7 +100,7 @@ struct DecorationWrapper {
         if (wrapper->decoration && wrapper->decoration->toplevel &&
             wrapper->decoration->toplevel->base &&
             wrapper->decoration->toplevel->base->initialized) {
-            wrapper->enforce_server_side();
+            wrapper->enforce_mode();
             safe_remove(&wrapper->surface_commit);
         }
     }
@@ -319,12 +362,7 @@ bool Server::init() {
     }
 
     m_server_decoration_manager = wlr_server_decoration_manager_create(m_wl_display);
-    if (m_server_decoration_manager) {
-        wlr_server_decoration_manager_set_default_mode(
-            m_server_decoration_manager,
-            WLR_SERVER_DECORATION_MANAGER_MODE_SERVER
-        );
-    }
+    sync_decoration_config();
 
     m_xdg_activation = wlr_xdg_activation_v1_create(m_wl_display);
     if (m_xdg_activation) {
@@ -572,6 +610,7 @@ void Server::reload_config() {
     Config::get().load();
     update_sourced_file_watches();
     sync_blur_config();
+    sync_decoration_config();
 
     if (m_output_manager) {
         m_output_manager->reapply_all_configs();
@@ -1333,7 +1372,7 @@ void Server::handle_new_xdg_decoration(struct wl_listener* listener, void* data)
     wrapper->destroy.notify = DecorationWrapper::handle_destroy;
     wl_signal_add(&decoration->events.destroy, &wrapper->destroy);
 
-    wrapper->enforce_server_side();
+    wrapper->enforce_mode();
 }
 
 void Server::handle_xdg_activation_request_activate(struct wl_listener* listener, void* data) {
@@ -1398,6 +1437,27 @@ void Server::sync_blur_config() {
         mark_optimized_blur_dirty();
     } else {
         wlr_scene_set_blur_data(m_scene, 0, 0, 0.0f, 1.0f, 1.0f, 1.0f);
+    }
+}
+
+void Server::sync_decoration_config() {
+    bool prefer_server = Config::get().is_prefer_server_decorations_enabled();
+    if (m_server_decoration_manager) {
+        wlr_server_decoration_manager_set_default_mode(
+            m_server_decoration_manager,
+            prefer_server ? WLR_SERVER_DECORATION_MANAGER_MODE_SERVER : WLR_SERVER_DECORATION_MANAGER_MODE_CLIENT
+        );
+    }
+
+    DecorationWrapper* dec_wrapper;
+    wl_list_for_each(dec_wrapper, &m_xdg_decorations, link) {
+        dec_wrapper->enforce_mode();
+    }
+
+    for (const auto& v : m_views) {
+        if (v && v->get_type() == ViewType::XWayland) {
+            v->update_xwayland_decorations();
+        }
     }
 }
 

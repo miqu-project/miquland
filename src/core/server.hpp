@@ -47,6 +47,7 @@ public:
     struct wlr_scene_tree* get_layer_overlay_tree() const { return m_layer_overlay_tree; }
     struct wlr_scene_optimized_blur* get_optimized_blur() const { return m_optimized_blur; }
     void sync_blur_config();
+    void sync_decoration_config();
     void mark_optimized_blur_dirty();
     void update_optimized_blur_geometry(int width, int height);
 

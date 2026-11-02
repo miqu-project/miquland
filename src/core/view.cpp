@@ -2621,10 +2621,7 @@ void View::handle_xwayland_set_decorations(struct wl_listener* listener, void* d
     view->update_xwayland_decorations();
 }
 
-void View::update_xwayland_decorations() {
-    if (m_type != ViewType::XWayland || !m_xwayland_surface) return;
-
-    bool csd = (m_xwayland_surface->decorations != WLR_XWAYLAND_SURFACE_DECORATIONS_ALL);
+void View::set_using_csd(bool csd) {
     if (m_using_csd != csd) {
         m_using_csd = csd;
         update_border();
@@ -2637,6 +2634,23 @@ void View::update_xwayland_decorations() {
             m_server->get_workspace_manager()->recalculate_layout();
         }
     }
+}
+
+void View::update_xwayland_decorations() {
+    if (m_type != ViewType::XWayland || !m_xwayland_surface) return;
+
+    std::string app_id = get_app_id();
+    std::string title = get_title();
+
+    bool csd = false;
+    if (Config::get().should_use_csd(app_id, title)) {
+        csd = true;
+    } else if (Config::get().should_use_ssd(app_id, title)) {
+        csd = false;
+    } else {
+        csd = (m_xwayland_surface->decorations != WLR_XWAYLAND_SURFACE_DECORATIONS_ALL);
+    }
+    set_using_csd(csd);
 }
 
 void View::set_parent_view(View* parent) {

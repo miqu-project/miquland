@@ -124,6 +124,7 @@ void Config::set_defaults() {
     m_repeat_delay = 600;
     m_window_opacity_active = 1.0f;
     m_window_opacity_inactive = 1.0f;
+    m_prefer_server_decorations = true;
     m_animations_enabled = true;
     m_workspace_animations_enabled = true;
     m_workspace_animation_duration_ms = 340;
@@ -494,6 +495,34 @@ bool Config::is_window_blur_bottom_only(const std::string& app_id, const std::st
         }
     }
     return default_val;
+}
+
+bool Config::should_use_csd(const std::string& app_id, const std::string& title) const {
+    for (const auto& r : m_window_rules) {
+        if (matches_target(r.target, app_id) || matches_target(r.target, title)) {
+            if (r.rule == "csd") {
+                return (r.extra.empty() || r.extra == "true" || r.extra == "1" || r.extra == "yes");
+            }
+            if (r.rule == "ssd") {
+                return false;
+            }
+        }
+    }
+    return !m_prefer_server_decorations;
+}
+
+bool Config::should_use_ssd(const std::string& app_id, const std::string& title) const {
+    for (const auto& r : m_window_rules) {
+        if (matches_target(r.target, app_id) || matches_target(r.target, title)) {
+            if (r.rule == "ssd") {
+                return (r.extra.empty() || r.extra == "true" || r.extra == "1" || r.extra == "yes");
+            }
+            if (r.rule == "csd") {
+                return false;
+            }
+        }
+    }
+    return m_prefer_server_decorations;
 }
 
 float Config::get_window_shadow_blur_sigma(const std::string& app_id, const std::string& title, float default_val) const {
@@ -1378,6 +1407,8 @@ void Config::parse_general_entry(const std::string& path_str, const std::string&
             m_resize_on_border = (value == "true" || value == "1" || value == "yes");
         } else if (key == "border_grab_area") {
             try { m_border_grab_area = std::clamp(std::stoi(value), 1, 30); } catch (...) {}
+        } else if (key == "prefer_server_decorations" || key == "server_decorations") {
+            m_prefer_server_decorations = (value == "true" || value == "1" || value == "yes" || value == "server");
         }
     } else if (path_str == "general.gaps" || (top_type == "gaps" && is_in_path(stack, "general"))) {
         if (key == "inner") {
@@ -1429,6 +1460,8 @@ void Config::parse_decoration_entry(const std::string& path_str, const std::stri
             try { m_window_opacity_active = std::clamp(std::stof(value), 0.0f, 1.0f); } catch (...) {}
         } else if (key == "inactive_opacity") {
             try { m_window_opacity_inactive = std::clamp(std::stof(value), 0.0f, 1.0f); } catch (...) {}
+        } else if (key == "prefer_server_decorations" || key == "server_decorations") {
+            m_prefer_server_decorations = (value == "true" || value == "1" || value == "yes" || value == "server");
         }
     } else if (path_str == "decoration.blur" || (top_type == "blur" && is_in_path(stack, "decoration"))) {
         if (key == "enabled") {
@@ -2283,6 +2316,12 @@ void Config::parse_windowrule_entry(const std::string& target, const std::string
         has_rules_in_file = true;
     } else if (key == "blur_bottom_only") {
         file_rules.push_back({ "blur_bottom_only", target, value });
+        has_rules_in_file = true;
+    } else if (key == "csd") {
+        file_rules.push_back({ "csd", target, value });
+        has_rules_in_file = true;
+    } else if (key == "ssd") {
+        file_rules.push_back({ "ssd", target, value });
         has_rules_in_file = true;
     } else if (key == "immediate") {
         file_rules.push_back({ "immediate", target, value });
