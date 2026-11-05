@@ -90,11 +90,24 @@ void LayerSurface::update_tree() {
     }
 }
 
+void LayerSurface::update_corner_radius() {
+    if (!m_scene_layer_surface || !m_scene_layer_surface->tree) return;
+    Config::LayerRule rule = Config::get().get_layer_rule(m_namespace);
+    int r = (rule.blur_corner_radius >= 0) ? rule.blur_corner_radius :
+            ((rule.shadow_corner_radius >= 0) ? rule.shadow_corner_radius : 0);
+    wlr_scene_node_for_each_buffer(&m_scene_layer_surface->tree->node,
+        [](struct wlr_scene_buffer* buffer, int sx, int sy, void* user_data) {
+            int radius = *static_cast<int*>(user_data);
+            wlr_scene_buffer_set_corner_radius(buffer, radius);
+        }, &r);
+}
+
 void LayerSurface::update_blur() {
     if (!Config::get().is_blur_enabled()) {
         if (m_blur_node) {
             wlr_scene_node_set_enabled(&m_blur_node->node, false);
         }
+        update_corner_radius();
         return;
     }
 
@@ -102,6 +115,7 @@ void LayerSurface::update_blur() {
         if (m_blur_node) {
             wlr_scene_node_set_enabled(&m_blur_node->node, false);
         }
+        update_corner_radius();
         return;
     }
 
@@ -110,6 +124,7 @@ void LayerSurface::update_blur() {
         if (m_blur_node) {
             wlr_scene_node_set_enabled(&m_blur_node->node, false);
         }
+        update_corner_radius();
         return;
     }
 
@@ -119,6 +134,7 @@ void LayerSurface::update_blur() {
         if (m_blur_node) {
             wlr_scene_node_set_enabled(&m_blur_node->node, false);
         }
+        update_corner_radius();
         return;
     }
 
@@ -164,6 +180,8 @@ void LayerSurface::update_blur() {
             wlr_scene_blur_set_transparency_mask_source(m_blur_node, nullptr);
         }
     }
+
+    update_corner_radius();
 }
 
 void LayerSurface::sync_shadow_geometry(int w, int h, int r, float sigma, double ox, double oy) {
@@ -326,11 +344,16 @@ void LayerSurface::apply_animation_transform(int offset_x, int offset_y, double 
 
     wlr_scene_node_set_position(&m_scene_layer_surface->tree->node, cur_x, cur_y);
 
+    Config::LayerRule rule = Config::get().get_layer_rule(m_namespace);
+    int r = (rule.blur_corner_radius >= 0) ? rule.blur_corner_radius :
+            ((rule.shadow_corner_radius >= 0) ? rule.shadow_corner_radius : 0);
+
     struct BufferAnimData {
         double scale_x;
         double scale_y;
         float opacity;
-    } data = { scale_x, scale_y, safe_opacity };
+        int corner_radius;
+    } data = { scale_x, scale_y, safe_opacity, r };
 
     wlr_scene_node_for_each_buffer(&m_scene_layer_surface->tree->node, [](struct wlr_scene_buffer* buf, int sx, int sy, void* user_data) {
         auto* d = static_cast<BufferAnimData*>(user_data);
@@ -342,6 +365,8 @@ void LayerSurface::apply_animation_transform(int offset_x, int offset_y, double 
             wlr_scene_buffer_set_dest_size(buf, 0, 0);
         }
         wlr_scene_buffer_set_opacity(buf, d->opacity);
+        int scaled_r = static_cast<int>(std::round(static_cast<double>(d->corner_radius) * std::min(d->scale_x, d->scale_y)));
+        wlr_scene_buffer_set_corner_radius(buf, scaled_r);
     }, &data);
 
     if (m_blur_node) {
@@ -353,19 +378,15 @@ void LayerSurface::apply_animation_transform(int offset_x, int offset_y, double 
             int bh = std::max(1, static_cast<int>(std::round(static_cast<double>(base_h) * scale_y)));
             wlr_scene_blur_set_size(m_blur_node, bw, bh);
 
-            Config::LayerRule rule = Config::get().get_layer_rule(m_namespace);
             float base_alpha = (rule.blur_alpha >= 0.0f) ? rule.blur_alpha : 1.0f;
             wlr_scene_blur_set_alpha(m_blur_node, safe_opacity * base_alpha);
 
-            int r = (rule.blur_corner_radius >= 0) ? rule.blur_corner_radius :
-                    ((rule.shadow_corner_radius >= 0) ? rule.shadow_corner_radius : 0);
             int scaled_r = static_cast<int>(std::round(static_cast<double>(r) * std::min(scale_x, scale_y)));
             wlr_scene_blur_set_corner_radius(m_blur_node, scaled_r);
         }
     }
 
     if (m_shadow_node) {
-        Config::LayerRule rule = Config::get().get_layer_rule(m_namespace);
         if (safe_opacity < 0.01f || !rule.shadow_enabled) {
             wlr_scene_node_set_enabled(&m_shadow_node->node, false);
         } else {
@@ -398,6 +419,7 @@ void LayerSurface::reset_animation_transform() {
     }, nullptr);
     update_blur();
     update_shadow();
+    update_corner_radius();
 
     if (m_wlr_layer_surface && m_wlr_layer_surface->output) {
         wlr_output_schedule_frame(m_wlr_layer_surface->output);
@@ -521,6 +543,7 @@ void LayerSurface::handle_surface_commit(struct wl_listener* listener, void* dat
         surface->update_blur();
         surface->update_shadow();
     }
+    surface->update_corner_radius();
 
     if (surface->m_current_layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND && surface->m_server) {
         surface->m_server->mark_optimized_blur_dirty();

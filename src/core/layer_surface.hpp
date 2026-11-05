@@ -31,6 +31,7 @@ public:
     void update_tree();
     void update_blur();
     void update_shadow();
+    void update_corner_radius();
 
     struct wlr_buffer* get_current_buffer() const { return m_current_buffer; }
     Server* get_server() const { return m_server; }
