@@ -6,6 +6,7 @@
 #include "core/animation/animation_manager.hpp"
 #include "core/ipc/ipc_server.hpp"
 #include <ctime>
+#include <cmath>
 
 namespace miquland {
 
@@ -156,6 +157,10 @@ void Output::apply_config() {
 }
 
 Output::~Output() {
+    if (m_gamma_transform) {
+        wlr_color_transform_unref(m_gamma_transform);
+        m_gamma_transform = nullptr;
+    }
     wl_list_remove(&m_frame_listener.link);
     wl_list_remove(&m_needs_frame_listener.link);
     wl_list_remove(&m_request_state_listener.link);
@@ -196,7 +201,12 @@ void Output::handle_frame(struct wl_listener* listener, void* data) {
     struct wlr_output_state state;
     wlr_output_state_init(&state);
 
-    if (!wlr_scene_output_build_state(output->m_scene_output, &state, nullptr)) {
+    struct wlr_scene_output_state_options options = {};
+    if (output->m_software_gamma && output->m_gamma_transform) {
+        options.color_transform = output->m_gamma_transform;
+    }
+
+    if (!wlr_scene_output_build_state(output->m_scene_output, &state, (options.color_transform ? &options : nullptr))) {
         wlr_output_state_finish(&state);
         if (output->m_server && output->m_server->get_animation_manager() &&
             output->m_server->get_animation_manager()->has_active_animations()) {
@@ -255,6 +265,88 @@ bool Output::commit_tearing() {
     }
 
     return false;
+}
+
+static void kelvin_to_rgb(double kelvin, double& r, double& g, double& b) {
+    kelvin = std::clamp(kelvin, 1000.0, 10000.0);
+    double temp = kelvin / 100.0;
+
+    if (temp <= 66.0) {
+        r = 255.0;
+    } else {
+        r = 329.698727446 * std::pow(temp - 60.0, -0.1332047592);
+    }
+
+    if (temp <= 66.0) {
+        g = 99.4708025861 * std::log(temp) - 161.1195681661;
+    } else {
+        g = 288.1221695283 * std::pow(temp - 60.0, -0.0755148492);
+    }
+
+    if (temp >= 66.0) {
+        b = 255.0;
+    } else if (temp <= 19.0) {
+        b = 0.0;
+    } else {
+        b = 138.5177312231 * std::log(temp - 10.0) - 305.0447927307;
+    }
+
+    r = std::clamp(r, 0.0, 255.0);
+    g = std::clamp(g, 0.0, 255.0);
+    b = std::clamp(b, 0.0, 255.0);
+}
+
+bool Output::set_gamma_temperature(int temp_k) {
+    if (!m_wlr_output) return false;
+
+    if (m_gamma_transform) {
+        wlr_color_transform_unref(m_gamma_transform);
+        m_gamma_transform = nullptr;
+    }
+
+    if (temp_k < 6500 && temp_k >= 1000) {
+        double r_ref, g_ref, b_ref;
+        kelvin_to_rgb(6500.0, r_ref, g_ref, b_ref);
+
+        double r_raw, g_raw, b_raw;
+        kelvin_to_rgb(static_cast<double>(temp_k), r_raw, g_raw, b_raw);
+
+        double r_scale = std::clamp(r_raw / r_ref, 0.0, 1.0);
+        double g_scale = std::clamp(g_raw / g_ref, 0.0, 1.0);
+        double b_scale = std::clamp(b_raw / b_ref, 0.0, 1.0);
+
+        size_t ramp_size = wlr_output_get_gamma_size(m_wlr_output);
+        if (ramp_size == 0) ramp_size = 256;
+
+        std::vector<uint16_t> r_lut(ramp_size);
+        std::vector<uint16_t> g_lut(ramp_size);
+        std::vector<uint16_t> b_lut(ramp_size);
+
+        for (size_t i = 0; i < ramp_size; ++i) {
+            double v = static_cast<double>(i) / static_cast<double>(ramp_size - 1);
+            r_lut[i] = static_cast<uint16_t>(std::clamp(std::round(v * r_scale * 65535.0), 0.0, 65535.0));
+            g_lut[i] = static_cast<uint16_t>(std::clamp(std::round(v * g_scale * 65535.0), 0.0, 65535.0));
+            b_lut[i] = static_cast<uint16_t>(std::clamp(std::round(v * b_scale * 65535.0), 0.0, 65535.0));
+        }
+
+        m_gamma_transform = wlr_color_transform_init_lut_3x1d(ramp_size, r_lut.data(), g_lut.data(), b_lut.data());
+    }
+
+    struct wlr_output_state state;
+    wlr_output_state_init(&state);
+    wlr_output_state_set_color_transform(&state, m_gamma_transform);
+
+    bool ok = wlr_output_commit_state(m_wlr_output, &state);
+    wlr_output_state_finish(&state);
+
+    if (!ok && m_gamma_transform) {
+        m_software_gamma = true;
+    } else {
+        m_software_gamma = false;
+    }
+
+    wlr_output_schedule_frame(m_wlr_output);
+    return true;
 }
 
 void Output::handle_request_state(struct wl_listener* listener, void* data) {
@@ -332,6 +424,9 @@ void OutputManager::add_output(std::unique_ptr<Output> output) {
     m_outputs.push_back(std::move(output));
     if (m_server && ptr->get_wlr_output()) {
         m_server->arrange_layers(ptr->get_wlr_output());
+    }
+    if (m_server && m_server->is_gamma_enabled()) {
+        ptr->set_gamma_temperature(m_server->get_gamma_temperature());
     }
     if (m_server->get_ext_workspace_group() && ptr->get_wlr_output()) {
         wlr_ext_workspace_group_handle_v1_output_enter(m_server->get_ext_workspace_group(), ptr->get_wlr_output());
@@ -499,6 +594,14 @@ bool OutputManager::apply_config(struct wlr_output_configuration_v1* config, boo
         m_server->get_workspace_manager()->recalculate_layout();
     }
     return true;
+}
+
+void OutputManager::set_gamma_temperature(int temp_k) {
+    for (auto& output : m_outputs) {
+        if (output) {
+            output->set_gamma_temperature(temp_k);
+        }
+    }
 }
 
 } // namespace miquland

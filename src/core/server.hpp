@@ -108,6 +108,11 @@ public:
     void set_session_lock_trees_enabled(bool enabled);
     void handle_idle_inhibitor_destroy();
 
+    int get_gamma_temperature() const { return m_gamma_temperature; }
+    bool is_gamma_enabled() const { return m_gamma_enabled; }
+    void set_gamma_temperature(int temp_k);
+    void set_gamma_enabled(bool enabled);
+
 private:
     static void handle_new_xdg_toplevel(struct wl_listener* listener, void* data);
     static void handle_new_layer_shell_surface(struct wl_listener* listener, void* data);
@@ -201,6 +206,9 @@ private:
     std::unique_ptr<PluginManager> m_plugin_manager;
     std::unique_ptr<AnimationManager> m_animation_manager;
     std::unique_ptr<IpcServer> m_ipc_server;
+
+    int m_gamma_temperature = 6500;
+    bool m_gamma_enabled = false;
 
     static void handle_new_session_lock(struct wl_listener* listener, void* data);
     static void handle_gamma_set_gamma(struct wl_listener* listener, void* data);

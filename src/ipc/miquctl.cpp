@@ -237,6 +237,7 @@ void print_help(const char* prog) {
               << "                              togglesplit, toggle_split   Toggle split orientation (horizontal/vertical)\n"
               << "                              shutdown [timeout_ms]       Trigger graceful shutdown\n\n"
               << "Compositor & Session Control:\n"
+              << "  gamma [temp|on|off|toggle] Get or set display color warmth / night light\n"
               << "  exit                      Terminate miquland session immediately\n"
               << "  reload                    Reload miquland.conf configuration\n"
               << "  exec <command>            Execute a program in the compositor environment\n"
@@ -514,6 +515,22 @@ int main(int argc, char* argv[]) {
     std::string response = send_command_get_response(socket_path, payload);
     if (response.empty()) {
         return 1;
+    }
+
+    if (command == "gamma" && !force_json) {
+        if (response.find("\"status\":\"error\"") != std::string::npos) {
+            std::cerr << "Error: " << response << std::endl;
+            return 1;
+        }
+        bool enabled = (response.find("\"enabled\":true") != std::string::npos);
+        int temp = 6500;
+        size_t tpos = response.find("\"temperature\":");
+        if (tpos != std::string::npos) {
+            try { temp = std::stoi(response.substr(tpos + 14)); } catch (...) {}
+        }
+        std::cout << "Night Light / Gamma: " << (enabled ? "ON" : "OFF")
+                  << " (" << temp << "K)" << std::endl;
+        return 0;
     }
 
     if (!force_json && !response.empty() && (response.front() == '{' || response.front() == '[')) {

@@ -22,6 +22,7 @@ public:
     void set_usable_area(const struct wlr_box& area) { m_usable_area = area; }
 
     bool commit_tearing();
+    bool set_gamma_temperature(int temp_k);
 
 private:
     static void handle_frame(struct wl_listener* listener, void* data);
@@ -33,6 +34,8 @@ private:
     struct wlr_output* m_wlr_output = nullptr;
     struct wlr_scene_output* m_scene_output = nullptr;
     struct wlr_box m_usable_area = { 0, 0, 0, 0 };
+    struct wlr_color_transform* m_gamma_transform = nullptr;
+    bool m_software_gamma = false;
 
     struct wl_listener m_frame_listener;
     struct wl_listener m_needs_frame_listener;
@@ -61,6 +64,7 @@ public:
     void apply_all_configs();
     void reapply_all_configs();
     void update_manager_config();
+    void set_gamma_temperature(int temp_k);
 
 private:
     static void handle_new_output(struct wl_listener* listener, void* data);

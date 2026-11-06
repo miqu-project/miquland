@@ -198,6 +198,8 @@ void Config::set_defaults() {
     m_auto_float_fixed_size = true;
 
     m_smart_gaps = false;
+    m_gamma_enabled = false;
+    m_gamma_temperature = 4500;
     m_allow_tearing = false;
     m_xwayland_force_zero_scaling = true;
     m_cursor_theme = "";
@@ -1395,6 +1397,10 @@ void Config::parse_general_entry(const std::string& path_str, const std::string&
             try { m_default_split_ratio = std::clamp(std::stod(value), 0.1, 0.9); } catch (...) {}
         } else if (key == "smart_gaps") {
             m_smart_gaps = (value == "true" || value == "1" || value == "yes");
+        } else if (key == "gamma_enabled" || key == "night_light") {
+            m_gamma_enabled = (value == "true" || value == "1" || value == "yes");
+        } else if (key == "gamma_temperature" || key == "night_light_temperature") {
+            try { m_gamma_temperature = std::clamp(std::stoi(value), 1000, 10000); } catch (...) {}
         } else if (key == "allow_tearing") {
             m_allow_tearing = (value == "true" || value == "1" || value == "yes");
         } else if (key == "workspace_cycle") {
@@ -2635,6 +2641,8 @@ void Config::save() {
     file << "    layout = " << layout_mode_to_string(m_layout_mode) << "\n";
     file << "    default_split_ratio = " << m_default_split_ratio << "\n";
     file << "    smart_gaps = " << (m_smart_gaps ? "true" : "false") << "\n";
+    file << "    gamma_enabled = " << (m_gamma_enabled ? "true" : "false") << "\n";
+    file << "    gamma_temperature = " << m_gamma_temperature << "\n";
     file << "    allow_tearing = " << (m_allow_tearing ? "true" : "false") << "\n";
     file << "    workspace_cycle = " << (m_workspace_cycle ? "true" : "false") << "\n";
     file << "    vfr = " << (m_vfr_enabled ? "true" : "false") << "\n";

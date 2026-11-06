@@ -88,6 +88,7 @@ extern "C" {
 #include <wlr/types/wlr_tearing_control_v1.h>
 #include <wlr/types/wlr_ext_image_copy_capture_v1.h>
 #include <wlr/types/wlr_ext_image_capture_source_v1.h>
+#include <wlr/render/color.h>
 #include <wlr/types/wlr_ext_foreign_toplevel_list_v1.h>
 
 #ifdef __cplusplus

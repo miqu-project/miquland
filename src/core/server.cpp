@@ -427,6 +427,12 @@ bool Server::init() {
     m_plugin_manager = std::make_unique<PluginManager>(this);
     m_plugin_manager->load_configured_plugins();
 
+    m_gamma_temperature = Config::get().get_gamma_temperature();
+    m_gamma_enabled = Config::get().is_gamma_enabled();
+    if (m_gamma_enabled && m_output_manager) {
+        m_output_manager->set_gamma_temperature(m_gamma_temperature);
+    }
+
     return true;
 }
 
@@ -1473,6 +1479,22 @@ void Server::update_optimized_blur_geometry(int width, int height) {
         if (!Config::get().is_blur_enabled()) {
             wlr_scene_node_set_enabled(&m_optimized_blur->node, false);
         }
+    }
+}
+
+void Server::set_gamma_temperature(int temp_k) {
+    m_gamma_temperature = std::clamp(temp_k, 1000, 10000);
+    Config::get().set_gamma_temperature(m_gamma_temperature);
+    if (m_gamma_enabled && m_output_manager) {
+        m_output_manager->set_gamma_temperature(m_gamma_temperature);
+    }
+}
+
+void Server::set_gamma_enabled(bool enabled) {
+    m_gamma_enabled = enabled;
+    Config::get().set_gamma_enabled(m_gamma_enabled);
+    if (m_output_manager) {
+        m_output_manager->set_gamma_temperature(m_gamma_enabled ? m_gamma_temperature : 6500);
     }
 }
 

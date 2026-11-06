@@ -54,6 +54,12 @@ public:
     bool is_smart_gaps_enabled() const { return m_smart_gaps; }
     void set_smart_gaps_enabled(bool enabled) { m_smart_gaps = enabled; }
 
+    bool is_gamma_enabled() const { return m_gamma_enabled; }
+    void set_gamma_enabled(bool enabled) { m_gamma_enabled = enabled; }
+
+    int get_gamma_temperature() const { return m_gamma_temperature; }
+    void set_gamma_temperature(int temp_k) { m_gamma_temperature = std::clamp(temp_k, 1000, 10000); }
+
     bool is_tearing_allowed() const { return m_allow_tearing; }
     void set_tearing_allowed(bool enabled) { m_allow_tearing = enabled; }
 
@@ -605,6 +611,8 @@ private:
     std::vector<std::string> m_exec_once_commands;
 
     bool m_smart_gaps = false;
+    bool m_gamma_enabled = false;
+    int m_gamma_temperature = 4500;
     bool m_animations_enabled = true;
     bool m_workspace_animations_enabled = true;
     int m_workspace_animation_duration_ms = 340;

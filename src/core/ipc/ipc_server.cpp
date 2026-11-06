@@ -291,6 +291,8 @@ void IpcServer::handle_client_message(ClientConnection& client, ipc::MessageType
         send_response(client, ipc::MessageType::Response, handle_devices_query());
     } else if (cmd == "getoption") {
         send_response(client, ipc::MessageType::Response, handle_getoption_query(args));
+    } else if (cmd == "gamma") {
+        send_response(client, ipc::MessageType::Response, handle_gamma_query(args));
     } else if (cmd == "activewindow") {
         send_response(client, ipc::MessageType::Response, handle_activewindow_query());
     } else if (cmd == "activeworkspace") {
@@ -533,7 +535,9 @@ std::string IpcServer::handle_getoption_query(const std::string& key) {
            << "\"opacity_inactive\":" << cfg.get_window_opacity_inactive() << ","
            << "\"animations\":" << (cfg.is_animations_enabled() ? "true" : "false") << ","
            << "\"blur\":" << (cfg.is_blur_enabled() ? "true" : "false") << ","
-           << "\"smart_gaps\":" << (cfg.is_smart_gaps_enabled() ? "true" : "false")
+           << "\"smart_gaps\":" << (cfg.is_smart_gaps_enabled() ? "true" : "false") << ","
+           << "\"gamma_enabled\":" << (m_server->is_gamma_enabled() ? "true" : "false") << ","
+           << "\"gamma_temperature\":" << m_server->get_gamma_temperature()
            << "}";
         return ss.str();
     }
@@ -548,8 +552,65 @@ std::string IpcServer::handle_getoption_query(const std::string& key) {
     if (k == "animations") return "{\"option\":\"animations\",\"value\":" + std::string(cfg.is_animations_enabled() ? "true" : "false") + "}";
     if (k == "blur") return "{\"option\":\"blur\",\"value\":" + std::string(cfg.is_blur_enabled() ? "true" : "false") + "}";
     if (k == "smart_gaps") return "{\"option\":\"smart_gaps\",\"value\":" + std::string(cfg.is_smart_gaps_enabled() ? "true" : "false") + "}";
+    if (k == "gamma_enabled") return "{\"option\":\"gamma_enabled\",\"value\":" + std::string(m_server->is_gamma_enabled() ? "true" : "false") + "}";
+    if (k == "gamma_temperature") return "{\"option\":\"gamma_temperature\",\"value\":" + std::to_string(m_server->get_gamma_temperature()) + "}";
 
     return "{\"status\":\"error\",\"message\":\"Unknown option: " + ipc::escape_json(k) + "\"}";
+}
+
+std::string IpcServer::handle_gamma_query(const std::string& args) {
+    std::string a = args;
+    while (!a.empty() && a.front() == ' ') a.erase(0, 1);
+    while (!a.empty() && a.back() == ' ') a.pop_back();
+
+    if (a.empty() || a == "status" || a == "get") {
+        std::ostringstream ss;
+        ss << "{\"enabled\":" << (m_server->is_gamma_enabled() ? "true" : "false")
+           << ",\"temperature\":" << m_server->get_gamma_temperature() << "}";
+        return ss.str();
+    }
+
+    if (a == "off" || a == "disable" || a == "0") {
+        m_server->set_gamma_enabled(false);
+        std::ostringstream ss;
+        ss << "{\"status\":\"ok\",\"enabled\":false,\"temperature\":" << m_server->get_gamma_temperature() << "}";
+        return ss.str();
+    }
+
+    if (a == "on" || a == "enable" || a == "1") {
+        m_server->set_gamma_enabled(true);
+        std::ostringstream ss;
+        ss << "{\"status\":\"ok\",\"enabled\":true,\"temperature\":" << m_server->get_gamma_temperature() << "}";
+        return ss.str();
+    }
+
+    if (a == "toggle") {
+        bool new_state = !m_server->is_gamma_enabled();
+        m_server->set_gamma_enabled(new_state);
+        std::ostringstream ss;
+        ss << "{\"status\":\"ok\",\"enabled\":" << (new_state ? "true" : "false")
+           << ",\"temperature\":" << m_server->get_gamma_temperature() << "}";
+        return ss.str();
+    }
+
+    std::string val_str = a;
+    if (val_str.rfind("set ", 0) == 0) {
+        val_str = val_str.substr(4);
+        while (!val_str.empty() && val_str.front() == ' ') val_str.erase(0, 1);
+    }
+
+    try {
+        int kelvin = std::stoi(val_str);
+        kelvin = std::clamp(kelvin, 1000, 10000);
+        m_server->set_gamma_temperature(kelvin);
+        m_server->set_gamma_enabled(kelvin < 6500);
+        std::ostringstream ss;
+        ss << "{\"status\":\"ok\",\"enabled\":" << ((kelvin < 6500) ? "true" : "false")
+           << ",\"temperature\":" << kelvin << "}";
+        return ss.str();
+    } catch (...) {
+        return "{\"status\":\"error\",\"message\":\"Invalid gamma argument: " + ipc::escape_json(a) + "\"}";
+    }
 }
 
 std::string IpcServer::handle_activewindow_query() {
