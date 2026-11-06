@@ -58,6 +58,10 @@ public:
     bool is_app_launching() const { return m_app_launching; }
     const char* get_busy_cursor_name() const;
 
+    const std::vector<std::unique_ptr<Keyboard>>& get_keyboards() const { return m_keyboards; }
+    const std::vector<struct wlr_input_device*>& get_pointers() const { return m_pointers; }
+    const std::vector<struct wlr_input_device*>& get_touch_devices() const { return m_touch_devices; }
+
 private:
     static void handle_new_input(struct wl_listener* listener, void* data);
     static void handle_cursor_motion(struct wl_listener* listener, void* data);

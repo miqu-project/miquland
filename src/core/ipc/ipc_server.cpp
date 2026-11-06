@@ -5,8 +5,14 @@
 #include "core/output.hpp"
 #include "core/input/input.hpp"
 #include "core/config/config.hpp"
+#include "core/layer_surface.hpp"
 #include "core/plugin_manager.hpp"
 #include "core/common/util.hpp"
+
+#include <wlr/types/wlr_layer_shell_v1.h>
+#include <wlr/types/wlr_keyboard.h>
+#include <wlr/types/wlr_input_device.h>
+#include <xkbcommon/xkbcommon.h>
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -279,6 +285,12 @@ void IpcServer::handle_client_message(ClientConnection& client, ipc::MessageType
         send_response(client, ipc::MessageType::Response, handle_clients_query());
     } else if (cmd == "monitors" || cmd == "outputs") {
         send_response(client, ipc::MessageType::Response, handle_monitors_query());
+    } else if (cmd == "layers") {
+        send_response(client, ipc::MessageType::Response, handle_layers_query());
+    } else if (cmd == "devices" || cmd == "inputs") {
+        send_response(client, ipc::MessageType::Response, handle_devices_query());
+    } else if (cmd == "getoption") {
+        send_response(client, ipc::MessageType::Response, handle_getoption_query(args));
     } else if (cmd == "activewindow") {
         send_response(client, ipc::MessageType::Response, handle_activewindow_query());
     } else if (cmd == "activeworkspace") {
@@ -398,6 +410,146 @@ std::string IpcServer::handle_monitors_query() {
     }
     ss << "]";
     return ss.str();
+}
+
+std::string IpcServer::handle_layers_query() {
+    std::ostringstream ss;
+    ss << "[";
+    bool first = true;
+    for (const auto& ls_ptr : m_server->get_layer_surfaces()) {
+        LayerSurface* ls = ls_ptr.get();
+        if (!ls) continue;
+        if (!first) ss << ",";
+        first = false;
+
+        std::string layer_name = "background";
+        switch (ls->get_layer()) {
+            case ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND: layer_name = "background"; break;
+            case ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM:     layer_name = "bottom"; break;
+            case ZWLR_LAYER_SHELL_V1_LAYER_TOP:        layer_name = "top"; break;
+            case ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY:    layer_name = "overlay"; break;
+        }
+
+        struct wlr_layer_surface_v1* wls = ls->get_wlr_layer_surface();
+        std::string output_name = (wls && wls->output && wls->output->name) ? wls->output->name : "all";
+        int exclusive_zone = wls ? wls->current.exclusive_zone : 0;
+
+        ss << "{"
+           << "\"namespace\":\"" << ipc::escape_json(ls->get_namespace()) << "\","
+           << "\"layer\":\"" << layer_name << "\","
+           << "\"output\":\"" << ipc::escape_json(output_name) << "\","
+           << "\"mapped\":" << (ls->is_mapped() ? "true" : "false") << ","
+           << "\"exclusive_zone\":" << exclusive_zone << ","
+           << "\"geometry\":{"
+           << "\"x\":" << ls->get_geo_x() << ","
+           << "\"y\":" << ls->get_geo_y() << ","
+           << "\"width\":" << ls->get_width() << ","
+           << "\"height\":" << ls->get_height()
+           << "}}";
+    }
+    ss << "]";
+    return ss.str();
+}
+
+std::string IpcServer::handle_devices_query() {
+    InputManager* im = m_server->get_input_manager();
+    if (!im) return "{\"keyboards\":[],\"pointers\":[],\"touch\":[]}";
+
+    std::ostringstream ss;
+    ss << "{\"keyboards\":[";
+    bool first_kb = true;
+    for (const auto& kb : im->get_keyboards()) {
+        if (!kb) continue;
+        struct wlr_input_device* dev = kb->get_device();
+        struct wlr_keyboard* wlr_kb = kb->get_wlr_keyboard();
+        if (!dev) continue;
+
+        if (!first_kb) ss << ",";
+        first_kb = false;
+
+        const char* name = dev->name ? dev->name : "unknown";
+        std::string layout = "default";
+        if (wlr_kb && wlr_kb->keymap) {
+            xkb_layout_index_t num_layouts = xkb_keymap_num_layouts(wlr_kb->keymap);
+            if (num_layouts > 0) {
+                const char* l_name = xkb_keymap_layout_get_name(wlr_kb->keymap, 0);
+                if (l_name) layout = l_name;
+            }
+        }
+
+        ss << "{"
+           << "\"name\":\"" << ipc::escape_json(name) << "\","
+           << "\"type\":\"keyboard\","
+           << "\"layout\":\"" << ipc::escape_json(layout) << "\","
+           << "\"repeat_rate\":" << (wlr_kb ? wlr_kb->repeat_info.rate : 0) << ","
+           << "\"repeat_delay\":" << (wlr_kb ? wlr_kb->repeat_info.delay : 0)
+           << "}";
+    }
+    ss << "],\"pointers\":[";
+    bool first_ptr = true;
+    for (auto* ptr : im->get_pointers()) {
+        if (!ptr) continue;
+        if (!first_ptr) ss << ",";
+        first_ptr = false;
+
+        const char* name = ptr->name ? ptr->name : "unknown";
+        ss << "{"
+           << "\"name\":\"" << ipc::escape_json(name) << "\","
+           << "\"type\":\"pointer\""
+           << "}";
+    }
+    ss << "],\"touch\":[";
+    bool first_touch = true;
+    for (auto* tch : im->get_touch_devices()) {
+        if (!tch) continue;
+        if (!first_touch) ss << ",";
+        first_touch = false;
+
+        const char* name = tch->name ? tch->name : "unknown";
+        ss << "{"
+           << "\"name\":\"" << ipc::escape_json(name) << "\","
+           << "\"type\":\"touch\""
+           << "}";
+    }
+    ss << "]}";
+    return ss.str();
+}
+
+std::string IpcServer::handle_getoption_query(const std::string& key) {
+    Config& cfg = Config::get();
+    std::string k = key;
+    while (!k.empty() && k.front() == ' ') k.erase(0, 1);
+    while (!k.empty() && k.back() == ' ') k.pop_back();
+
+    if (k.empty() || k == "all") {
+        std::ostringstream ss;
+        ss << "{"
+           << "\"layout\":\"" << Config::layout_mode_to_string(cfg.get_layout_mode()) << "\","
+           << "\"gaps_in\":" << cfg.get_space_between_windows() << ","
+           << "\"gaps_out\":" << cfg.get_screen_edge_padding() << ","
+           << "\"border_width\":" << cfg.get_window_border_width() << ","
+           << "\"border_radius\":" << cfg.get_window_border_radius() << ","
+           << "\"opacity_active\":" << cfg.get_window_opacity_active() << ","
+           << "\"opacity_inactive\":" << cfg.get_window_opacity_inactive() << ","
+           << "\"animations\":" << (cfg.is_animations_enabled() ? "true" : "false") << ","
+           << "\"blur\":" << (cfg.is_blur_enabled() ? "true" : "false") << ","
+           << "\"smart_gaps\":" << (cfg.is_smart_gaps_enabled() ? "true" : "false")
+           << "}";
+        return ss.str();
+    }
+
+    if (k == "layout") return "{\"option\":\"layout\",\"value\":\"" + Config::layout_mode_to_string(cfg.get_layout_mode()) + "\"}";
+    if (k == "gaps_in") return "{\"option\":\"gaps_in\",\"value\":" + std::to_string(cfg.get_space_between_windows()) + "}";
+    if (k == "gaps_out") return "{\"option\":\"gaps_out\",\"value\":" + std::to_string(cfg.get_screen_edge_padding()) + "}";
+    if (k == "border_width") return "{\"option\":\"border_width\",\"value\":" + std::to_string(cfg.get_window_border_width()) + "}";
+    if (k == "border_radius") return "{\"option\":\"border_radius\",\"value\":" + std::to_string(cfg.get_window_border_radius()) + "}";
+    if (k == "opacity_active") return "{\"option\":\"opacity_active\",\"value\":" + std::to_string(cfg.get_window_opacity_active()) + "}";
+    if (k == "opacity_inactive") return "{\"option\":\"opacity_inactive\",\"value\":" + std::to_string(cfg.get_window_opacity_inactive()) + "}";
+    if (k == "animations") return "{\"option\":\"animations\",\"value\":" + std::string(cfg.is_animations_enabled() ? "true" : "false") + "}";
+    if (k == "blur") return "{\"option\":\"blur\",\"value\":" + std::string(cfg.is_blur_enabled() ? "true" : "false") + "}";
+    if (k == "smart_gaps") return "{\"option\":\"smart_gaps\",\"value\":" + std::string(cfg.is_smart_gaps_enabled() ? "true" : "false") + "}";
+
+    return "{\"status\":\"error\",\"message\":\"Unknown option: " + ipc::escape_json(k) + "\"}";
 }
 
 std::string IpcServer::handle_activewindow_query() {

@@ -44,6 +44,9 @@ private:
     std::string handle_workspaces_query();
     std::string handle_clients_query();
     std::string handle_monitors_query();
+    std::string handle_layers_query();
+    std::string handle_devices_query();
+    std::string handle_getoption_query(const std::string& key);
     std::string handle_activewindow_query();
     std::string handle_activeworkspace_query();
     std::string handle_version_query();

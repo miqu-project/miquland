@@ -203,6 +203,7 @@ void print_help(const char* prog) {
               << "First-party IPC controller for the miquland Wayland compositor.\n\n"
               << "Global Options:\n"
               << "  -s, --socket <path>       Specify custom IPC socket path\n"
+              << "  -b, --batch <commands>    Execute multiple commands separated by ';' in batch\n"
               << "  -j, --json                Force raw JSON output\n"
               << "  -h, --help                Display this help message\n"
               << "  -v, --version             Display version information\n\n"
@@ -210,6 +211,9 @@ void print_help(const char* prog) {
               << "  workspaces                List all workspaces and active states\n"
               << "  clients, windows          List all mapped application windows\n"
               << "  monitors, outputs         List all connected outputs\n"
+              << "  layers                    List active layer-shell surfaces (bar, desktop, notifications)\n"
+              << "  devices, inputs           List connected keyboards, pointers, and touch devices\n"
+              << "  getoption [name]          Get compositor configuration option value (or all)\n"
               << "  activewindow              Get currently focused window\n"
               << "  activeworkspace           Get currently active workspace\n"
               << "  version                   Display compositor version and protocol\n\n"
@@ -391,6 +395,56 @@ int do_shutdown(const std::string& socket_path, int argc, char* argv[], int star
     return 0;
 }
 
+int do_batch(const std::string& socket_path, const std::string& batch_cmds, bool force_json) {
+    int fd = connect_to_server(socket_path);
+    if (fd < 0) return 1;
+
+    std::stringstream ss(batch_cmds);
+    std::string cmd;
+    std::vector<std::string> results;
+
+    while (std::getline(ss, cmd, ';')) {
+        while (!cmd.empty() && (cmd.front() == ' ' || cmd.front() == '\t')) cmd.erase(0, 1);
+        while (!cmd.empty() && (cmd.back() == ' ' || cmd.back() == '\t' || cmd.back() == '\r')) cmd.pop_back();
+        if (cmd.empty()) continue;
+
+        if (!send_request(fd, MessageType::Command, cmd)) {
+            std::cerr << "Error: Failed to send batch command: " << cmd << std::endl;
+            close(fd);
+            return 1;
+        }
+
+        MessageType resp_type;
+        std::string resp;
+        if (!read_response(fd, resp_type, resp)) {
+            std::cerr << "Error: Failed to read response for: " << cmd << std::endl;
+            close(fd);
+            return 1;
+        }
+        results.push_back(resp);
+    }
+
+    close(fd);
+
+    if (force_json) {
+        std::cout << "[";
+        for (size_t i = 0; i < results.size(); ++i) {
+            if (i > 0) std::cout << ",";
+            std::cout << results[i];
+        }
+        std::cout << "]" << std::endl;
+    } else {
+        for (const auto& r : results) {
+            if (!r.empty() && (r.front() == '{' || r.front() == '[')) {
+                std::cout << pretty_print_json(r) << std::endl;
+            } else {
+                std::cout << r << std::endl;
+            }
+        }
+    }
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -400,6 +454,7 @@ int main(int argc, char* argv[]) {
     }
 
     std::string explicit_socket;
+    std::string batch_commands;
     bool force_json = false;
     int cmd_idx = 1;
 
@@ -414,6 +469,9 @@ int main(int argc, char* argv[]) {
         } else if ((arg == "-s" || arg == "--socket") && cmd_idx + 1 < argc) {
             explicit_socket = argv[++cmd_idx];
             cmd_idx++;
+        } else if ((arg == "-b" || arg == "--batch") && cmd_idx + 1 < argc) {
+            batch_commands = argv[++cmd_idx];
+            cmd_idx++;
         } else if (arg == "-j" || arg == "--json") {
             force_json = true;
             cmd_idx++;
@@ -422,12 +480,16 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    std::string socket_path = find_socket_path(explicit_socket);
+
+    if (!batch_commands.empty()) {
+        return do_batch(socket_path, batch_commands, force_json);
+    }
+
     if (cmd_idx >= argc) {
         print_help(argv[0]);
         return 1;
     }
-
-    std::string socket_path = find_socket_path(explicit_socket);
     std::string command = argv[cmd_idx];
 
     if (command == "shutdown") {
